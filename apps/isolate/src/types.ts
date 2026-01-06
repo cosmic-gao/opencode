@@ -106,7 +106,7 @@ export interface Runner {
 }
 
 export interface Factory {
-  spawn: (permissions?: Deno.PermissionOptions, tools?: string[]) => Process;
+  spawn: (permissions?: Deno.PermissionOptions) => Process;
   runner: (proc: Process, timeout: number) => Runner;
 }
 
