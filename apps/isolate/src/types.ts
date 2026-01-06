@@ -1,4 +1,4 @@
-import type { AnyHook, AsyncHook, Hooks, Plugin } from '@opencode/plugable';
+import type { AnyHook, AsyncHook, Hooks, Plugin, SyncHook } from '@opencode/plugable';
 
 export interface Tool {
   name: string;
@@ -61,9 +61,17 @@ export interface Context {
   tools?: string[];
 }
 
+export interface ChannelMessage {
+  type: 'channel';
+  topic: string;
+  data: unknown;
+  source?: string;
+}
+
 export interface IsolateHooks extends Hooks {
   onValidate: AsyncHook<Request>;
   onLoad: AsyncHook<Context>;
+  onSpawn: SyncHook<Process>;
   onExecute: AsyncHook<Context>;
   onFormat: AsyncHook<Output>;
   [key: string]: AnyHook;

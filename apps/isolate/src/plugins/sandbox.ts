@@ -68,8 +68,11 @@ function runner(proc: Process, timeout: number): Runner {
   return { run }
 }
 
-const factory: Factory = {
-  spawn,
+const wrappedFactory: Factory = {
+  spawn: () => {
+    const proc = spawn();
+    return proc;
+  },
   runner,
 }
 
@@ -88,14 +91,23 @@ export const SandboxPlugin: IsolatePlugin = {
       throw new Error('onWorker not registered')
     }
 
-    (api.onWorker as APIHook<Factory>).provide(factory)
+    const hookedFactory: Factory = {
+      spawn: () => {
+        const proc = wrappedFactory.spawn();
+        api.onSpawn.call(proc);
+        return proc;
+      },
+      runner: wrappedFactory.runner,
+    };
+
+    (api.onWorker as APIHook<Factory>).provide(hookedFactory)
 
     api.onExecute.tap(async (ctx) => {
       const { request, url, config } = ctx
       const limit = request.timeout ?? config.timeout
       
-      const w = factory.spawn()
-      const task = factory.runner(w, limit)
+      const w = hookedFactory.spawn()
+      const task = hookedFactory.runner(w, limit)
       
       const out = await task.run(request, url, ctx.globals, ctx.tools)
       

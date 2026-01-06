@@ -29,6 +29,7 @@ export {
   ClusterPlugin,
   LoggerPlugin,
   filter,
+  ChannelPlugin,
 } from './plugins/index.ts'
 
 export { send, wait } from './bridge.ts'
