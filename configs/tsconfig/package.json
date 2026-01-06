@@ -1,0 +1,16 @@
+{
+  "name": "@opencode/tsconfig",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    "./base.json": "./base.json",
+    "./esm.json": "./esm.json",
+    "./node.json": "./node.json",
+    "./web.json": "./web.json",
+    "./lib.json": "./lib.json",
+    "./vite.json": "./vite.json",
+    "./vue3.json": "./vue3.json",
+    "./react.json": "./react.json"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "name": "@opencode/tsconfig/vite",
+  "extends": "./web.json",
+  "compilerOptions": {
+    "types": ["vite/client"],
+    "noEmit": true
+  }
+}

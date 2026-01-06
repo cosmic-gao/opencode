@@ -1,0 +1,11 @@
+{
+  "name": "@opencode/plugable",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "devDependencies": {
+    "@opencode/tsconfig": "workspace:*",
+    "typescript": "^5.3.3"
+  }
+}

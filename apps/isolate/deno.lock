@@ -1,0 +1,27 @@
+{
+  "version": "5",
+  "specifiers": {
+    "npm:errorish@2.0.0": "2.0.0",
+    "npm:hono@4.4.11": "4.4.11"
+  },
+  "npm": {
+    "errorish@2.0.0": {
+      "integrity": "sha512-91GQeOWjd9LM3OrByN1NITjKUb+5mofBYg9n8strtH0MVAgBoIw7WqtLLMbj1hCzL6J2I8QRYOt4Q2E/UJCMNg==",
+      "dependencies": [
+        "type-core"
+      ]
+    },
+    "hono@4.4.11": {
+      "integrity": "sha512-R5RADpjoRsR3/VsnFovpsYNLPnC1f+FgdfsePk3qIgjb4D41Sg7uW5QCj41kzEOwXCjBg0sVvOZMvUNZ0DKB7g=="
+    },
+    "type-core@0.15.0": {
+      "integrity": "sha512-WyHD8dJjglSU0eHK+iftMF4ERrCCgURSoHHbHiWPov9FXpu6R4/aw7DeU+UHNwoEpCkvg9x1/MWldeJlxgt/xg=="
+    }
+  },
+  "workspace": {
+    "dependencies": [
+      "npm:errorish@2.0.0",
+      "npm:hono@4.4.11"
+    ]
+  }
+}

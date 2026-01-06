@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "name": "@opencode/tsconfig/web",
+  "extends": "./base.json",
+  "compilerOptions": {
+    "lib": ["esnext", "dom", "dom.iterable"],
+    "useDefineForClassFields": true
+  }
+}

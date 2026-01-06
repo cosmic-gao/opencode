@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "name": "@opencode/tsconfig/react",
+  "extends": "./vite.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "react",
+    "types": ["vite/client", "@types/react", "@types/react-dom"]
+  }
+}

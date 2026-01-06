@@ -1,0 +1,35 @@
+{
+  "nodeModulesDir": "none",
+  "unstable": [
+    "worker-options"
+  ],
+  "tasks": {
+    "dev": "deno run --allow-net --allow-read=./src --watch src/server.ts"
+  },
+  "imports": {
+    "hono": "npm:hono@4.4.11",
+    "errorish": "npm:errorish@2.0.0",
+    "@opencode/plugable": "../../packages/plugable/src/index.ts"
+  },
+  "compilerOptions": {
+    "lib": [
+      "deno.ns",
+      "deno.worker",
+      "esnext"
+    ],
+    "strict": true
+  },
+  "lock": true,
+  "fmt": {
+    "useTabs": false,
+    "lineWidth": 100,
+    "singleQuote": true
+  },
+  "lint": {
+    "rules": {
+      "tags": [
+        "recommended"
+      ]
+    }
+  }
+}
