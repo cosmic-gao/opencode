@@ -8,13 +8,12 @@ export type {
   Context,
   IsolateHooks,
   IsolatePlugin,
-  WorkerHandle,
-  WorkerExecutor,
-  WorkerFactory,
-  LoggerStore,
-  LoggerFactory,
-  LogEntry,
-  LogLevel,
+  Process,
+  Runner,
+  Factory,
+  Logger,
+  Entry,
+  Level,
 } from './types.ts'
 
 export { DEFAULT_CONFIG, merge } from './config.ts'
@@ -33,3 +32,5 @@ export {
 } from './plugins/index.ts'
 
 export { send, wait } from './bridge.ts'
+
+export * from './common.ts'

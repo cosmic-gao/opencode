@@ -1,9 +1,9 @@
-import type { IsolatePlugin, WorkerHandle, WorkerExecutor, WorkerFactory, Request, Output, Packet } from '../types.ts'
+import type { IsolatePlugin, Process, Runner, Factory, Request, Output, Packet } from '../types.ts'
 import type { APIHook } from '@opencode/plugable'
 import { createAPIHook } from '@opencode/plugable'
 import { send, wait } from '../bridge.ts'
 
-function create(): WorkerHandle {
+function spawn(): Process {
   const url = new URL('../worker.ts', import.meta.url).href
   const options = { type: 'module', deno: { permissions: 'none' } } as WorkerOptions
   const worker = new Worker(url, options)
@@ -19,10 +19,10 @@ function create(): WorkerHandle {
   return { worker, kill }
 }
 
-function execute(handle: WorkerHandle, timeout: number): WorkerExecutor {
-  const run = async (request: Request, url: string): Promise<Output> => {
+function runner(proc: Process, timeout: number): Runner {
+  const run = async (request: Request, url: string, globals?: Record<string, unknown>, tools?: string[]): Promise<Output> => {
     const start = performance.now()
-    const res = wait(handle.worker)
+    const res = wait(proc.worker)
 
     let tid: number | undefined
     const limit = new Promise<Output>((resolve) => {
@@ -45,9 +45,11 @@ function execute(handle: WorkerHandle, timeout: number): WorkerExecutor {
       input: request.input as unknown,
       entry: request.entry ?? 'default',
       url,
+      tools, 
+      globals,
     }
 
-    send(handle.worker, msg)
+    send(proc.worker, msg)
 
     const out = await Promise.race([res, limit])
     
@@ -63,12 +65,12 @@ function execute(handle: WorkerHandle, timeout: number): WorkerExecutor {
     }
   }
 
-  return { execute: run }
+  return { run }
 }
 
-const factory: WorkerFactory = {
-  createWorker: create,
-  createExecutor: execute,
+const factory: Factory = {
+  spawn,
+  runner,
 }
 
 export const SandboxPlugin: IsolatePlugin = {
@@ -78,7 +80,7 @@ export const SandboxPlugin: IsolatePlugin = {
   required: ['opencode:guard', 'opencode:loader'],
   usePlugins: [],
   registryHook: {
-    onWorker: createAPIHook<WorkerFactory>(),
+    onWorker: createAPIHook<Factory>(),
   },
 
   setup(api) {
@@ -86,20 +88,19 @@ export const SandboxPlugin: IsolatePlugin = {
       throw new Error('onWorker not registered')
     }
 
-    (api.onWorker as APIHook<WorkerFactory>).provide(factory)
+    (api.onWorker as APIHook<Factory>).provide(factory)
 
     api.onExecute.tap(async (ctx) => {
       const { request, url, config } = ctx
       const limit = request.timeout ?? config.timeout
       
-      const w = factory.createWorker()
-      const exec = factory.createExecutor(w, limit)
+      const w = factory.spawn()
+      const task = factory.runner(w, limit)
       
-      const out = await exec.execute(request, url)
+      const out = await task.run(request, url, ctx.globals, ctx.tools)
       
       api.setContext({ output: out })
       return { ...ctx, output: out }
     })
   },
 }
-

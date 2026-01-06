@@ -1,22 +1,14 @@
-import type { Fault, LogEntry, LogLevel, Output, Packet } from './types.ts';
-import { ensure } from 'errorish';
+import type { Entry, Fault, Level, Output, Packet } from './types.ts';
+import { tools } from './tools/index.ts';
+import { bootstrap, normalize } from './common.ts';
 
-function normalize(error: unknown): Fault {
-  const err = ensure(error);
-  return {
-    name: err.name,
-    message: err.message,
-    stack: err.stack,
-  };
-}
-
-function capture(level: LogLevel) {
+function capture(level: Level) {
   return (...args: unknown[]) => {
     const msg = args
       .map((x) => (typeof x === 'string' ? x : JSON.stringify(x)))
       .join(' ');
 
-    const log: LogEntry = {
+    const log: Entry = {
       level,
       message: msg,
       timestamp: Date.now(),
@@ -34,7 +26,7 @@ console.error = capture('error');
 self.addEventListener('error', (event: ErrorEvent) => {
   event.preventDefault();
   const err = normalize(event.error);
-  const log: LogEntry = {
+  const log: Entry = {
     level: 'exception',
     message: err.message,
     name: err.name,
@@ -47,7 +39,7 @@ self.addEventListener('error', (event: ErrorEvent) => {
 self.addEventListener('unhandledrejection', (event: PromiseRejectionEvent) => {
   event.preventDefault();
   const err = normalize(event.reason);
-  const log: LogEntry = {
+  const log: Entry = {
     level: 'exception',
     message: err.message,
     name: err.name,
@@ -73,6 +65,8 @@ async function run(packet: Packet): Promise<Output> {
   const start = performance.now();
 
   try {
+    bootstrap(globalThis as Record<string, unknown>, tools, packet.tools, packet.globals);
+
     const mod = await import(packet.url);
     const fn = pick(mod as Record<string, unknown>, packet.entry);
     const out = await fn(packet.input);
@@ -85,7 +79,7 @@ async function run(packet: Packet): Promise<Output> {
   } catch (e) {
     const err = normalize(e);
 
-    const log: LogEntry = {
+    const log: Entry = {
       level: 'exception',
       message: err.message,
       name: err.name,

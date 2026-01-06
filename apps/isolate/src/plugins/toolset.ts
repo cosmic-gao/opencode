@@ -1,13 +1,15 @@
-import type { IsolatePlugin, ToolsetFactory, Context } from '../types.ts'
-import type { APIHook } from '@opencode/plugable'
-import { createAPIHook } from '@opencode/plugable'
-import { tools, defaults, setup } from '../tools/index.ts'
+import type { Context, IsolatePlugin, Toolset } from '../types.ts';
+import { type APIHook, createAPIHook } from '@opencode/plugable';
+import { tools } from '../tools/index.ts';
+import { registry, setup } from '../common.ts';
 
-const factory: ToolsetFactory = {
+const defaults = registry(tools);
+
+const factory: Toolset = {
   tools: () => tools,
   registry: () => defaults,
   setup,
-}
+};
 
 export const ToolsetPlugin: IsolatePlugin = {
   name: 'opencode:tools',
@@ -16,32 +18,28 @@ export const ToolsetPlugin: IsolatePlugin = {
   required: ['opencode:guard'],
   usePlugins: [],
   registryHook: {
-    onToolset: createAPIHook<ToolsetFactory>(),
+    onToolset: createAPIHook<Toolset>(),
   },
 
   setup(api) {
     if (!api.onToolset) {
-      throw new Error('onToolset not registered')
+      throw new Error('onToolset not registered');
     }
 
-    (api.onToolset as APIHook<ToolsetFactory>).provide(factory)
+    (api.onToolset as APIHook<Toolset>).provide(factory);
 
     api.onLoad.tap((ctx: Context) => {
-      const items = factory.tools()
-      const globals: Record<string, unknown> = {}
-      
-      // 在全局上下文中注入工具,而非字符串拼接
-      factory.setup(items, globals)
-      
-      // 将工具全局对象添加到上下文中
-      const updated: Context = { 
+      const items = factory.tools();
+
+      const updated: Context = {
         ...ctx,
-        globals,
-      }
-      
-      api.setContext(updated)
-      
-      return updated
-    })
+        tools: items.map((t) => t.name),
+        globals: {},
+      };
+
+      api.setContext(updated);
+
+      return updated;
+    });
   },
-}
+};

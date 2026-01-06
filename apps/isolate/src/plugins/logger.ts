@@ -1,13 +1,13 @@
-import type { IsolatePlugin, LogEntry, LogLevel, Output, LoggerFactory } from '../types.ts'
+import type { IsolatePlugin, Entry, Level, Output, Logger } from '../types.ts'
 import type { APIHook } from '@opencode/plugable'
 import { createAPIHook } from '@opencode/plugable'
 
 interface FilterOptions {
-  minLevel?: LogLevel
+  minLevel?: Level
   maxEntries?: number
 }
 
-const LEVELS: Record<LogLevel, number> = {
+const LEVELS: Record<Level, number> = {
   log: 0,
   info: 1,
   warn: 2,
@@ -15,7 +15,7 @@ const LEVELS: Record<LogLevel, number> = {
   exception: 4,
 }
 
-function filter(logs: readonly LogEntry[], options: FilterOptions = {}): LogEntry[] {
+function filter(logs: readonly Entry[], options: FilterOptions = {}): Entry[] {
   let result = [...logs]
 
   if (options.minLevel) {
@@ -30,7 +30,7 @@ function filter(logs: readonly LogEntry[], options: FilterOptions = {}): LogEntr
   return result
 }
 
-const factory: LoggerFactory = {
+const factory: Logger = {
   filter,
 }
 
@@ -41,7 +41,7 @@ export const LoggerPlugin: IsolatePlugin = {
   required: [],
   usePlugins: [],
   registryHook: {
-    onLogger: createAPIHook<LoggerFactory>(),
+    onLogger: createAPIHook<Logger>(),
   },
 
   setup(api) {
@@ -49,7 +49,7 @@ export const LoggerPlugin: IsolatePlugin = {
       throw new Error('onLogger not registered')
     }
 
-    (api.onLogger as APIHook<LoggerFactory>).provide(factory)
+    (api.onLogger as APIHook<Logger>).provide(factory)
 
     api.onFormat.tap((output: Output) => {
       if (output.logs && output.logs.length > 0) {

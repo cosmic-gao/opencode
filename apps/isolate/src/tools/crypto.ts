@@ -1,11 +1,18 @@
-import type { Tool } from './types.ts'
+import type { Tool } from '../types.ts';
+import { inject, proxy } from '../common.ts';
 
 export const crypto: Tool = {
   name: 'crypto',
-  description: 'Web Crypto API',
   setup: (globals) => {
-    if (typeof globalThis.crypto === 'undefined' && typeof self.crypto !== 'undefined') {
-      globals.crypto = self.crypto
+    if (typeof self.crypto === 'undefined') {
+      return;
     }
+
+    const safe = proxy(
+      self.crypto,
+      ['getRandomValues', 'randomUUID'],
+    );
+
+    inject(globals, 'crypto', safe);
   },
-}
+};

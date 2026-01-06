@@ -1,11 +1,10 @@
-import type { IsolatePlugin, Request, Output, WorkerHandle, WorkerExecutor, WorkerFactory } from '../types.ts'
+import type { IsolatePlugin, Request, Output, Process, Runner, Factory } from '../types.ts'
 import type { APIHook } from '@opencode/plugable'
-import { customAlphabet } from 'nanoid'
 
 interface PoolWorker {
   id: string
-  handle: WorkerHandle
-  executor: WorkerExecutor | null
+  handle: Process
+  executor: Runner | null
   busy: boolean
   used: number
 }
@@ -15,8 +14,6 @@ interface ClusterOptions {
   max: number
   idle: number
 }
-
-const nanoid = customAlphabet('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz', 32)
 
 class Cluster {
   private pool: PoolWorker[] = []
@@ -32,17 +29,17 @@ class Cluster {
     }
   }
 
-  initialize(createWorker: () => WorkerHandle) {
+  init(spawn: () => Process) {
     for (let i = 0; i < this.config.min; i++) {
-      this.spawn(createWorker)
+      this.spawn(spawn)
     }
     this.schedule()
   }
 
-  private spawn(createWorker: () => WorkerHandle): PoolWorker {
-    const handle = createWorker()
+  private spawn(create: () => Process): PoolWorker {
+    const handle = create()
     const worker: PoolWorker = {
-      id: nanoid(),
+      id: crypto.randomUUID(),
       handle,
       executor: null,
       busy: false,
@@ -64,11 +61,11 @@ class Cluster {
 
     for (const worker of expired) {
       if (this.pool.length <= this.config.min) break
-      this.terminate(worker)
+      this.kill(worker)
     }
   }
 
-  private terminate(worker: PoolWorker) {
+  private kill(worker: PoolWorker) {
     try {
       worker.handle.kill()
     } catch {
@@ -78,12 +75,12 @@ class Cluster {
     if (index >= 0) this.pool.splice(index, 1)
   }
 
-  private acquire(createWorker: () => WorkerHandle): PoolWorker | null {
+  private acquire(spawn: () => Process): PoolWorker | null {
     const idle = this.pool.find((w) => !w.busy)
     if (idle) return idle
 
     if (this.pool.length < this.config.max) {
-      return this.spawn(createWorker)
+      return this.spawn(spawn)
     }
 
     return null
@@ -95,14 +92,16 @@ class Cluster {
     worker.executor = null
   }
 
-  async execute(
-    createWorker: () => WorkerHandle,
-    createExecutor: (handle: WorkerHandle, timeout: number) => WorkerExecutor,
+  async run(
+    spawn: () => Process,
+    runner: (proc: Process, timeout: number) => Runner,
     request: Request,
     url: string,
-    timeout: number
+    timeout: number,
+    globals?: Record<string, unknown>,
+    tools?: string[]
   ): Promise<Output> {
-    const worker = this.acquire(createWorker)
+    const worker = this.acquire(spawn)
     
     if (!worker) {
       return {
@@ -118,24 +117,24 @@ class Cluster {
     }
 
     worker.busy = true
-    worker.executor = createExecutor(worker.handle, timeout)
+    worker.executor = runner(worker.handle, timeout)
 
     try {
-      const out = await worker.executor.execute(request, url)
+      const out = await worker.executor.run(request, url, globals, tools)
       
-      const timeout = out.logs?.some(
+      const timeoutErr = out.logs?.some(
         log => log.level === 'exception' && log.name === 'TimeoutError'
       )
       
-      if (timeout) {
-        this.terminate(worker)
+      if (timeoutErr) {
+        this.kill(worker)
       } else {
         this.release(worker)
       }
       
       return out
     } catch (err) {
-      this.terminate(worker)
+      this.kill(worker)
       const log = {
         level: 'exception' as const,
         message: err instanceof Error ? err.message : 'Unknown error',
@@ -174,25 +173,27 @@ export const ClusterPlugin: IsolatePlugin = {
   registryHook: {},
 
   setup(api) {
-    const factory = (api.onWorker as APIHook<WorkerFactory> | undefined)?.use()
+    const factory = (api.onWorker as APIHook<Factory> | undefined)?.use()
     
     if (!factory) {
       throw new Error('ClusterPlugin requires onWorker from SandboxPlugin')
     }
 
     const cluster = new Cluster({ min: 2, max: 8, idle: 120_000 })
-    cluster.initialize(factory.createWorker)
+    cluster.init(factory.spawn)
 
     api.onExecute.tap(async (ctx) => {
       const { request, url, config } = ctx
       const limit = request.timeout ?? config.timeout
 
-      const out = await cluster.execute(
-        factory.createWorker,
-        factory.createExecutor,
+      const out = await cluster.run(
+        factory.spawn,
+        factory.runner,
         request,
         url,
-        limit
+        limit,
+        ctx.globals,
+        ctx.tools
       )
 
       api.setContext({ output: out })
@@ -200,4 +201,3 @@ export const ClusterPlugin: IsolatePlugin = {
     })
   },
 }
-
