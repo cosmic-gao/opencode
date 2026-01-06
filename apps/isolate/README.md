@@ -398,16 +398,16 @@ Worker 集群插件，复用 Worker 实例以提升性能。**（默认启用）
 沙箱执行插件，每次执行创建新的隔离 Worker。**（按需使用）**
 
 **特性**：
-- 注册 `onWorker` APIHook，提供 WorkerFactory
+- 注册 `onWorker` APIHook，提供 Factory
 - 每次执行创建独立 Worker
 - 执行完成后立即终止 Worker
 - 适用于低频执行场景
 
 **API 注册**：
 ```typescript
-interface WorkerFactory {
-  spawn: () => WorkerHandle
-  executor: (handle: WorkerHandle, timeout: number) => WorkerExecutor
+interface Factory {
+  spawn: () => Process
+  runner: (proc: Process, timeout: number) => Runner
 }
 ```
 
@@ -419,22 +419,15 @@ interface WorkerFactory {
 日志处理插件，过滤和格式化日志输出。**（默认启用）**
 
 **特性**：
-- 注册 `onLogger` APIHook，提供 LoggerFactory
+- 注册 `onLogger` APIHook，提供 Logger
 - 过滤日志条目（按级别、数量）
 - 支持简单日志和结构化日志
 - 最大保留 1000 条日志
 
 **API 注册**：
 ```typescript
-interface LoggerFactory {
-  createLogger: () => LoggerStore
-}
-
-interface LoggerStore {
-  simpleLogs: readonly string[]
-  structuredLogs: readonly LogEntry[]
-  intercept: () => void
-  restore: () => void
+interface Logger {
+  filter: (logs: readonly Entry[], options?: { minLevel?: Level; maxEntries?: number }) => Entry[]
 }
 ```
 
@@ -446,7 +439,7 @@ interface LoggerStore {
 工具集插件，通过全局上下文注入提供运行时工具。**（默认启用）**
 
 **特性**：
-- 注册 `onToolset` APIHook，提供 ToolsetFactory
+- 注册 `onToolset` APIHook，提供 Toolset
 - 使用全局上下文注入，避免代码字符串拼接
 - 零性能开销（无重复编译）
 - 支持动态工具注册
@@ -466,11 +459,11 @@ interface Registry {
   [key: string]: Tool
 }
 
-// ToolsetFactory API
-interface ToolsetFactory {
-  tools: () => Tool[]                                     // 获取所有工具
-  registry: () => Registry                                // 获取工具注册表
-  setup: (tools: Tool[], globals: Record<string, unknown>) => void  // 设置工具
+// Toolset API
+interface Toolset {
+  tools: () => Tool[]
+  registry: () => Registry
+  setup: (tools: Tool[], globals: Record<string, unknown>) => void
 }
 ```
 

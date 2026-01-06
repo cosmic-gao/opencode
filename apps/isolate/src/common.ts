@@ -1,3 +1,4 @@
+import { ensure } from 'errorish';
 import type { Fault, Registry, Tool } from './types.ts';
 
 export function proxy<T extends object>(
@@ -42,6 +43,11 @@ export function inject(
   name: string,
   value: unknown,
 ): void {
+  const desc = Object.getOwnPropertyDescriptor(scope, name);
+  if (desc && !desc.configurable) {
+    return; 
+  }
+
   Object.defineProperty(scope, name, {
     value,
     writable: false,
@@ -51,24 +57,11 @@ export function inject(
 }
 
 export function normalize(error: unknown): Fault {
-  if (error instanceof Error) {
-    return {
-      name: error.name,
-      message: error.message,
-      stack: error.stack,
-    };
-  }
-
-  if (typeof error === 'string') {
-    return {
-      name: 'Error',
-      message: error,
-    };
-  }
-
+  const err = ensure(error);
   return {
-    name: 'UnknownError',
-    message: String(error),
+    name: err.name,
+    message: err.message,
+    stack: err.stack,
   };
 }
 

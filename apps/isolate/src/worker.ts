@@ -2,10 +2,29 @@ import type { Entry, Fault, Level, Output, Packet } from './types.ts';
 import { tools } from './tools/index.ts';
 import { bootstrap, normalize } from './common.ts';
 
+function safeStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value)
+  } catch {
+    try {
+      const seen = new WeakSet()
+      return JSON.stringify(value, (_k, v) => {
+        if (typeof v === 'object' && v !== null) {
+          if (seen.has(v)) return '[Circular]'
+          seen.add(v)
+        }
+        return v
+      })
+    } catch {
+      return String(value)
+    }
+  }
+}
+
 function capture(level: Level) {
   return (...args: unknown[]) => {
     const msg = args
-      .map((x) => (typeof x === 'string' ? x : JSON.stringify(x)))
+      .map((x) => (typeof x === 'string' ? x : safeStringify(x)))
       .join(' ');
 
     const log: Entry = {
@@ -67,7 +86,10 @@ async function run(packet: Packet): Promise<Output> {
   try {
     bootstrap(globalThis as Record<string, unknown>, tools, packet.tools, packet.globals);
 
-    const mod = await import(packet.url);
+    const now = Date.now().toString(36)
+    const suffix = packet.url.includes('?') ? '&' : '?'
+    const mod = await import(packet.url + suffix + 'v=' + now)
+    
     const fn = pick(mod as Record<string, unknown>, packet.entry);
     const out = await fn(packet.input);
 

@@ -1,5 +1,6 @@
 import type { IsolatePlugin, Request, Output, Process, Runner, Factory } from '../types.ts'
 import type { APIHook } from '@opencode/plugable'
+import { nanoid } from 'nanoid'
 
 interface PoolWorker {
   id: string
@@ -39,7 +40,7 @@ class Cluster {
   private spawn(create: () => Process): PoolWorker {
     const handle = create()
     const worker: PoolWorker = {
-      id: crypto.randomUUID(),
+      id: nanoid(32),
       handle,
       executor: null,
       busy: false,
