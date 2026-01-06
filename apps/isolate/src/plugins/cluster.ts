@@ -32,7 +32,7 @@ class Cluster {
     }
   }
 
-  init(spawn: () => Process) {
+  init(spawn: (permissions?: Deno.PermissionOptions) => Process) {
     const needed = Math.max(0, this.config.min - this.pool.length)
     for (let i = 0; i < needed; i++) {
       this.spawn(spawn)
@@ -40,7 +40,7 @@ class Cluster {
     this.schedule()
   }
 
-  private spawn(create: () => Process): PoolWorker | null {
+  private spawn(create: (permissions?: Deno.PermissionOptions) => Process): PoolWorker | null {
     if (this.pool.length >= this.config.max) {
       return null;
     }
@@ -114,7 +114,7 @@ class Cluster {
     return this.pool.find((w) => !w.busy && w.health === 'ok') ?? null
   }
 
-  private acquire(spawn: () => Process): PoolWorker | null {
+  private acquire(spawn: (permissions?: Deno.PermissionOptions) => Process): PoolWorker | null {
     const idle = this.find()
     if (idle) return idle
 
@@ -126,7 +126,7 @@ class Cluster {
     return null
   }
 
-  async warmup(spawn: () => Process, count: number): Promise<void> {
+  async warmup(spawn: (permissions?: Deno.PermissionOptions) => Process, count: number): Promise<void> {
     const needed = Math.min(count, this.config.max - this.pool.length);
     const tasks = []
     for (let i = 0; i < needed; i++) {
@@ -150,15 +150,16 @@ class Cluster {
   }
 
   async run(
-    spawn: () => Process,
+    spawn: (permissions?: Deno.PermissionOptions) => Process,
     runner: (proc: Process, timeout: number) => Runner,
     request: Request,
     url: string,
     timeout: number,
     globals?: Record<string, unknown>,
-    tools?: string[]
+    tools?: string[],
+    permissions?: Deno.PermissionOptions
   ): Promise<Output> {
-    const worker = this.acquire(spawn)
+    const worker = this.acquire(() => spawn(permissions))
     
     if (!worker) {
       return {
@@ -255,7 +256,8 @@ export const ClusterPlugin: IsolatePlugin = {
         url,
         limit,
         ctx.globals,
-        ctx.tools
+        ctx.tools,
+        ctx.permissions
       )
 
       api.setContext({ output: out })

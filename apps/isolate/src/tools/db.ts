@@ -1,108 +1,91 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
-import * as operators from 'drizzle-orm';
 import type { AnyPgTable } from 'drizzle-orm/pg-core';
 import type { Tool } from '../types.ts';
-import { inject } from '../common.ts';
+import { inject, lazy } from '../common.ts';
 
 type Schema = Record<string, AnyPgTable>;
-type DatabaseInstance<T extends Schema> = PostgresJsDatabase<T>;
+type Instance<T extends Schema> = PostgresJsDatabase<T>;
 
-const SCHEMAS_DIRECTORY = '../schemas/';
-const SCHEMA_FILE_EXTENSION = '.ts';
-const INDEX_FILE = 'index.ts';
+const DIRECTORY = '../schemas/';
+const EXTENSION = '.ts';
+const EXCLUDED = 'index.ts';
 
-async function loadSchemas(): Promise<Schema> {
-  const directory = new URL(SCHEMAS_DIRECTORY, import.meta.url);
+function validate(entry: Deno.DirEntry): boolean {
+  return entry.isFile &&
+    entry.name.endsWith(EXTENSION) &&
+    entry.name !== EXCLUDED;
+}
+
+async function load(filename: string): Promise<Schema> {
+  const module = await import(`${DIRECTORY}${filename}`);
+  return module as Schema;
+}
+
+export async function scan(): Promise<Schema> {
+  const location = new URL(DIRECTORY, import.meta.url);
   const schemas: Schema = {};
 
   try {
-    for await (const entry of Deno.readDir(directory)) {
-      if (
-        !entry.isFile || !entry.name.endsWith(SCHEMA_FILE_EXTENSION) || entry.name === INDEX_FILE
-      ) {
-        continue;
+    for await (const entry of Deno.readDir(location)) {
+      if (validate(entry)) {
+        const module = await load(entry.name);
+        Object.assign(schemas, module);
       }
-
-      const module = await import(`${SCHEMAS_DIRECTORY}${entry.name}`);
-      Object.assign(schemas, module);
     }
   } catch (error) {
-    console.warn('Failed to load schemas:', error);
+    console.warn('Schema loading failed:', error);
   }
 
   return schemas;
 }
 
+function proxy<T extends Schema>(
+  target: Database<T>,
+  schemas: T,
+): Database<T> & T {
+  return new Proxy(target, {
+    get: (obj, property: string | symbol) => {
+      if (typeof property === 'symbol' || property in obj) {
+        return Reflect.get(obj, property);
+      }
+      return schemas[property as keyof T];
+    },
+  }) as unknown as Database<T> & T;
+}
+
 class Database<T extends Schema> {
-  private readonly instance: DatabaseInstance<T>;
-  private readonly client: postgres.Sql;
-  private readonly schemas: T;
+  constructor(
+    private instance: Instance<T>,
+    private schemas: T,
+  ) {}
 
-  private constructor(connection: string, schemas: T) {
-    this.schemas = schemas;
-    this.client = postgres(connection);
-    this.instance = drizzle(this.client, { schema: schemas });
-
-    return this.proxy();
-  }
-
-  private proxy(): Database<T> & T {
-    return new Proxy(this, {
-      get: (target, property: string | symbol) => {
-        if (typeof property === 'symbol' || property in target) {
-          return Reflect.get(target, property);
-        }
-
-        if (property in this.schemas) {
-          return this.schemas[property as keyof T];
-        }
-
-        return undefined;
-      },
-    }) as unknown as Database<T> & T;
-  }
-
-  static async create<T extends Schema>(connection: string): Promise<Database<T>> {
-    const schemas = await loadSchemas() as T;
-    return new Database(connection, schemas);
-  }
-
-  get query(): DatabaseInstance<T> {
+  get db(): Instance<T> {
     return this.instance;
   }
 
-  get operators() {
-    return operators;
-  }
+  static async create(): Promise<Database<Schema> & Schema> {
+    const schemas = await scan();
+    const url = Deno.env.get('DATABASE_URL');
 
-  get tables(): readonly string[] {
-    return Object.keys(this.schemas);
-  }
+    if (!url) {
+      throw new Error('DATABASE_URL not found');
+    }
 
-  async close(): Promise<void> {
-    await this.client.end();
-  }
+    const connection = postgres(url);
+    const instance = drizzle(connection, { schema: schemas });
+    const database = new Database(instance, schemas);
 
-  async transaction<Result>(
-    callback: (transaction: DatabaseInstance<T>) => Promise<Result>,
-  ): Promise<Result> {
-    return await this.instance.transaction(callback);
+    return proxy(database, schemas);
   }
 }
 
 export const db: Tool = {
-  name: 'db',
-  setup: async (globals: Record<string, unknown>): Promise<void> => {
-    const connection = Deno.env.get('DATABASE_URL');
-    if (!connection) return;
-
-    if (globals.db) return;
-
-    const instance = await Database.create(connection);
-    Object.freeze(instance);
-    inject(globals, 'db', instance);
+  name: 'database',
+  setup(globals: Record<string, unknown>): void {
+    const api = lazy(() => Database.create());
+    inject(globals, 'db', api);
   },
 };
 

@@ -34,7 +34,6 @@ export const ToolsetPlugin: IsolatePlugin = {
       const updated: Context = {
         ...ctx,
         tools: items.map((t) => t.name),
-        globals: {},
       };
 
       api.setContext(updated);

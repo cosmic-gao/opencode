@@ -24,9 +24,7 @@ export function crypto(config?: CryptoToolConfig): Tool {
   return {
     name: 'crypto',
     setup: (globals) => {
-      if (typeof self.crypto === 'undefined') {
-        return;
-      }
+      if (typeof self.crypto === 'undefined') return;
 
       const defaults = ['getRandomValues', 'randomUUID'];
       if (config?.subtle !== false) {

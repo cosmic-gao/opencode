@@ -1,5 +1,6 @@
 export { GuardPlugin, validate } from './guard.ts'
 export { LoaderPlugin, encode } from './loader.ts'
+export { PermissionPlugin } from './permission.ts'
 export { SandboxPlugin } from './sandbox.ts'
 export { ClusterPlugin } from './cluster.ts'
 export { LoggerPlugin, filter } from './logger.ts'

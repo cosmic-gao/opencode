@@ -2,7 +2,8 @@ import type { AnyHook, AsyncHook, Hooks, Plugin, SyncHook } from '@opencode/plug
 
 export interface Tool {
   name: string;
-  setup: (globals: Record<string, unknown>) => void;
+  env?: string[];
+  setup: (globals: Record<string, unknown>) => void | Promise<void>;
 }
 
 export interface Registry {
@@ -33,6 +34,7 @@ export interface Request {
   readonly input?: unknown;
   readonly entry?: string;
   readonly timeout?: number;
+  readonly permissions?: Deno.PermissionOptions;
 }
 
 export type Reply = Output;
@@ -66,6 +68,7 @@ export interface Context {
   output: Output | null;
   globals?: Record<string, unknown>;
   tools?: string[];
+  permissions?: Deno.PermissionOptions;
 }
 
 export interface ChannelMessage<T = unknown> {
@@ -102,7 +105,7 @@ export interface Runner {
 }
 
 export interface Factory {
-  spawn: () => Process;
+  spawn: (permissions?: Deno.PermissionOptions) => Process;
   runner: (proc: Process, timeout: number) => Runner;
 }
 

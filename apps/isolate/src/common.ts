@@ -17,29 +17,29 @@ export function proxy<T extends object>(
   options: string[] | ProxyOptions<T>,
 ): T {
   const config = normalize(options);
-  
+
   const allowed = new Set(config.whitelist);
 
   return new Proxy(target, {
     get(t, p: string | symbol) {
       if (typeof p === 'symbol') return Reflect.get(t, p);
       if (!allowed.has(p)) return undefined;
-      
+
       const value = Reflect.get(t, p);
-      
+
       if (config.interceptor) {
         return config.interceptor(p, value);
       }
-      
+
       if (typeof value === 'function' && config.validator) {
         return new Proxy(value, {
           apply(fn, thisArg, args) {
             config.validator!(p, args);
             return Reflect.apply(fn, thisArg, args);
-          }
+          },
         });
       }
-      
+
       return value;
     },
 
@@ -70,11 +70,9 @@ export function proxy<T extends object>(
       if (typeof p === 'symbol') return Reflect.has(t, p);
       return allowed.has(p);
     },
-    
+
     ownKeys(t) {
-      return Reflect.ownKeys(t).filter(key => 
-        typeof key === 'symbol' || allowed.has(key)
-      );
+      return Reflect.ownKeys(t).filter((key) => typeof key === 'symbol' || allowed.has(key));
     },
   });
 }
@@ -90,16 +88,52 @@ export function read<T extends object>(target: T, name: string): T {
   });
 }
 
+export function lazy<T extends object>(
+  factory: () => Promise<T>,
+): T {
+  let instance: T | null = null;
+  let loading: Promise<T> | null = null;
+
+  const ensure = async (): Promise<T> => {
+    if (instance) return instance;
+    if (loading) return loading;
+
+    loading = factory();
+    instance = await loading;
+    loading = null;
+    return instance;
+  };
+
+  return new Proxy({} as T, {
+    get(_target, prop: string | symbol) {
+      if (typeof prop === 'symbol') return undefined;
+
+      return new Proxy({}, {
+        get(_t, method: string | symbol) {
+          if (typeof method === 'symbol') return undefined;
+
+          return (...args: unknown[]) => {
+            return ensure().then(obj => {
+              const table = (obj as Record<string, unknown>)[prop] as Record<string, unknown> | undefined;
+              if (!table || typeof table[method as string] !== 'function') {
+                throw new Error(`Invalid operation: ${String(prop)}.${String(method)}`);
+              }
+              return (table[method as string] as (...args: unknown[]) => unknown)(...args);
+            });
+          };
+        },
+      });
+    },
+  });
+}
+
 export function inject(
   scope: Record<string, unknown>,
   name: string,
   value: unknown,
 ): void {
   const desc = Object.getOwnPropertyDescriptor(scope, name);
-  if (desc && !desc.configurable) {
-    console.warn(`[inject] Property "${name}" is not configurable, skipping`);
-    return;
-  }
+  if (desc && !desc.configurable) return;
 
   Object.defineProperty(scope, name, {
     value,
@@ -113,13 +147,13 @@ export function fault(error: unknown): Fault {
   const err = ensure(error);
   const cleanStack = err.stack
     ?.split('\n')
-    .map(line => {
+    .map((line) => {
       return line
         .replace(/file:\/\/\/[A-Z]:\/[^\s)]+/g, '[isolate]')
         .replace(/https?:\/\/[^\s)]+/g, '[external]');
     })
     .join('\n');
-  
+
   return {
     name: err.name,
     message: err.message,
@@ -141,11 +175,11 @@ export function setup(items: Tool[], globals: Record<string, unknown>): void {
   }
 }
 
-export function install(scope: Record<string, unknown>, tools: Tool[]): string[] {
+export async function install(scope: Record<string, unknown>, tools: Tool[]): Promise<string[]> {
   const installed: string[] = [];
   try {
     for (const tool of tools) {
-      tool.setup(scope);
+      await tool.setup(scope);
       installed.push(tool.name);
     }
     return installed;
@@ -176,23 +210,63 @@ export function provide(scope: Record<string, unknown>, data: Record<string, unk
   }
 }
 
-export function bootstrap(
+export async function bootstrap(
   scope: Record<string, unknown>,
   items: Tool[],
   names: string[] = [],
   globals: Record<string, unknown> = {},
-): void {
+): Promise<void> {
   const index = registry(items);
-  const selected: Tool[] = [];
+  const initialized = new Set<string>();
+  const initializing = new Set<string>();
 
   for (const name of names) {
     const tool = index[name];
-    if (tool) {
-      selected.push(tool);
-    }
-  }
+    if (!tool) continue;
 
-  install(scope, selected);
+    Object.defineProperty(scope, name, {
+      get() {
+        if (initialized.has(name)) {
+          return scope[`$${name}`];
+        }
+
+        if (initializing.has(name)) {
+          throw new Error(`Circular dependency detected: ${name}`);
+        }
+
+        initializing.add(name);
+
+        try {
+          const setupScope = { ...scope };
+          const result = tool.setup(setupScope);
+
+          if (result && typeof result.then === 'function') {
+            throw new Error(`Tool '${name}' cannot be async in lazy mode`);
+          }
+
+          const instance = setupScope[name];
+          if (instance !== undefined) {
+            scope[`$${name}`] = instance;
+            initialized.add(name);
+            return instance;
+          }
+
+          throw new Error(`Tool '${name}' setup failed`);
+        } catch (error) {
+          initialized.add(name);
+          scope[`$${name}`] = undefined;
+          throw error;
+        } finally {
+          initializing.delete(name);
+        }
+      },
+      set() {
+        throw new Error(`Cannot set tool: ${name}`);
+      },
+      enumerable: true,
+      configurable: false,
+    });
+  }
 
   if (Object.keys(globals).length > 0) {
     provide(scope, globals);
@@ -283,7 +357,7 @@ export function reset(
 ): void {
   const tracked = TRACKED.get(scope);
   const toolSet = new Set(tools || []);
-  
+
   if (tracked && tracked.size > 0) {
     for (const key of tracked) {
       if (!GLOBALS.has(key) && !toolSet.has(key)) {

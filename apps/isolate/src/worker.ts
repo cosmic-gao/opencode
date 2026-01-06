@@ -45,7 +45,10 @@ self.addEventListener('unhandledrejection', (event: PromiseRejectionEvent) => {
   self.postMessage({ type: 'log', data: log });
 });
 
-function entry(module: Record<string, unknown>, name: string): (input: unknown) => unknown | Promise<unknown> {
+function entry(
+  module: Record<string, unknown>,
+  name: string,
+): (input: unknown) => unknown | Promise<unknown> {
   const fn = module[name];
   if (typeof fn !== 'function') {
     const err: Fault = { name: 'EntryError', message: `Entry "${name}" is not a function` };
@@ -63,8 +66,8 @@ async function run(packet: Packet): Promise<Output> {
     bootstrap(scope, tools, names, packet.globals);
 
     const url = bust(packet.url);
-    const mod = await import(url)
-    
+    const mod = await import(url);
+
     const fn = entry(mod as Record<string, unknown>, packet.entry);
     const out = await fn(packet.input);
 
@@ -96,11 +99,11 @@ async function run(packet: Packet): Promise<Output> {
 
 self.addEventListener('message', async (event: MessageEvent) => {
   const data = event.data;
-  
+
   if (!data || typeof data !== 'object' || !data.url) {
     return;
   }
-  
+
   const out = await run(data as Packet);
   self.postMessage({ type: 'result', data: out });
 });

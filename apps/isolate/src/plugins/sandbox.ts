@@ -3,9 +3,13 @@ import type { APIHook } from '@opencode/plugable'
 import { createAPIHook } from '@opencode/plugable'
 import { send, wait } from '../bridge.ts'
 
-function spawn(): Process {
+function spawn(permissions?: Deno.PermissionOptions): Process {
   const url = new URL('../worker.ts', import.meta.url).href
-  const options = { type: 'module', deno: { permissions: 'none' } } as WorkerOptions
+  const perms = permissions || "none"
+  const options = { 
+    type: 'module', 
+    deno: { permissions: perms }
+  } as WorkerOptions
   const worker = new Worker(url, options)
 
   const kill = () => {
@@ -78,9 +82,9 @@ function runner(proc: Process, timeout: number): Runner {
 }
 
 const factory: Factory = {
-  spawn: () => {
-    const proc = spawn();
-    return proc;
+  spawn: (permissions?: Deno.PermissionOptions) => {
+    const proc = spawn(permissions)
+    return proc
   },
   runner,
 }
@@ -97,31 +101,31 @@ export const SandboxPlugin: IsolatePlugin = {
 
   setup(api) {
     if (!api.onWorker) {
-      throw new Error('onWorker not registered')
+      throw new Error('onWorker not registered');
     }
 
     const hookedFactory: Factory = {
-      spawn: () => {
-        const proc = factory.spawn();
+      spawn: (permissions?: Deno.PermissionOptions) => {
+        const proc = factory.spawn(permissions);
         api.onSpawn.call(proc);
         return proc;
       },
       runner: factory.runner,
     };
 
-    (api.onWorker as APIHook<Factory>).provide(hookedFactory)
+    (api.onWorker as APIHook<Factory>).provide(hookedFactory);
 
     api.onExecute.tap(async (ctx) => {
-      const { request, url, config } = ctx
-      const limit = request.timeout ?? config.timeout
+      const { request, url, config } = ctx;
+      const limit = request.timeout ?? config.timeout;
       
-      const w = hookedFactory.spawn()
-      const task = hookedFactory.runner(w, limit)
+      const w = hookedFactory.spawn(ctx.permissions);
+      const task = hookedFactory.runner(w, limit);
       
-      const out = await task.run(request, url, ctx.globals, ctx.tools)
+      const out = await task.run(request, url, ctx.globals, ctx.tools);
       
-      api.setContext({ output: out })
-      return { ...ctx, output: out }
-    })
+      api.setContext({ output: out });
+      return { ...ctx, output: out };
+    });
   },
-}
+};

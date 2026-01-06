@@ -1,6 +1,6 @@
 import { createManager, createAsyncHook, createSyncHook } from '@opencode/plugable'
 import type { IsolateHooks, IsolatePlugin, Context, Config, Output, Request, Process } from './types.ts'
-import { GuardPlugin, LoaderPlugin, SandboxPlugin, ClusterPlugin, LoggerPlugin, ToolsetPlugin, ChannelPlugin } from './plugins/index.ts'
+import { GuardPlugin, LoaderPlugin, PermissionPlugin, SandboxPlugin, ClusterPlugin, LoggerPlugin, ToolsetPlugin, ChannelPlugin } from './plugins/index.ts'
 
 const DEFAULT: Config = {
   maxSize: 100_000,
@@ -52,6 +52,7 @@ export async function create(options: IsolateConfig = {}): Promise<Isolate> {
     GuardPlugin,
     ToolsetPlugin,
     LoaderPlugin,
+    PermissionPlugin,
     SandboxPlugin,
     ChannelPlugin,
     ...(cluster ? [ClusterPlugin] : []),
