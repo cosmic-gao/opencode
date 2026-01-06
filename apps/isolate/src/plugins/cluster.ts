@@ -33,7 +33,8 @@ class Cluster {
   }
 
   init(spawn: () => Process) {
-    for (let i = 0; i < this.config.min; i++) {
+    const needed = Math.max(0, this.config.min - this.pool.length)
+    for (let i = 0; i < needed; i++) {
       this.spawn(spawn)
     }
     this.schedule()
@@ -62,25 +63,20 @@ class Cluster {
   private cleanup() {
     const now = Date.now()
     
-    // 健康检查：标记长时间无响应的Worker为dead
     for (const w of this.pool) {
       if (w.busy && now - w.lastActive > 60_000) {
-        // Worker忙碌超过60秒无响应
         w.health = 'dead'
       } else if (!w.busy && now - w.lastActive > 300_000) {
-        // Worker空闲超过5分钟无活动
         w.health = 'suspected'
       }
     }
     
-    // 清理dead状态的Worker
     const dead = this.pool.filter(w => w.health === 'dead')
     for (const worker of dead) {
       console.warn(`[Cluster] Killing dead worker ${worker.id}`)
       this.kill(worker)
     }
     
-    // 清理空闲过期的Worker（保持最小数量）
     const expired = this.pool.filter(
       (w) => !w.busy && w.health !== 'dead' && now - w.used > this.config.idle
     )
@@ -102,11 +98,9 @@ class Cluster {
   }
 
   private acquire(spawn: () => Process): PoolWorker | null {
-    // 优先选择健康的空闲Worker
     const idle = this.pool.find((w) => !w.busy && w.health === 'ok')
     if (idle) return idle
 
-    // 如果没有健康的Worker且池未满，创建新Worker
     if (this.pool.length < this.config.max) {
       return this.spawn(spawn)
     }
@@ -114,12 +108,19 @@ class Cluster {
     return null
   }
 
+  async warmup(spawn: () => Process, count: number): Promise<void> {
+    const tasks = []
+    for (let i = 0; i < count; i++) {
+      tasks.push(Promise.resolve().then(() => this.spawn(spawn)))
+    }
+    await Promise.all(tasks)
+  }
+
   private release(worker: PoolWorker) {
     worker.busy = false
     worker.used = Date.now()
     worker.lastActive = Date.now()
     worker.executor = null
-    // 恢复健康状态
     if (worker.health === 'suspected') {
       worker.health = 'ok'
     }
@@ -209,7 +210,7 @@ export const ClusterPlugin: IsolatePlugin = {
   usePlugins: [],
   registryHook: {},
 
-  setup(api) {
+  async setup(api) {
     const factory = (api.onWorker as APIHook<Factory> | undefined)?.use()
     
     if (!factory) {
@@ -217,6 +218,7 @@ export const ClusterPlugin: IsolatePlugin = {
     }
 
     const cluster = new Cluster({ min: 2, max: 8, idle: 120_000 })
+    await cluster.warmup(factory.spawn, 2)
     cluster.init(factory.spawn)
 
     api.onExecute.tap(async (ctx) => {

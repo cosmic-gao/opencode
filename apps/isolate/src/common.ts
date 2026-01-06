@@ -150,9 +150,18 @@ export function install(scope: Record<string, unknown>, tools: Tool[]): string[]
   }
 }
 
+const FORBIDDEN = new Set(['__proto__', 'constructor', 'prototype']);
+
 export function provide(scope: Record<string, unknown>, data: Record<string, unknown>): void {
   for (const [key, value] of Object.entries(data)) {
+    if (FORBIDDEN.has(key)) {
+      throw new Error(`Forbidden key: ${key}`);
+    }
+    if (typeof key !== 'string' || key.includes('.')) {
+      throw new Error('Invalid key');
+    }
     inject(scope, key, value);
+    track(scope, key);
   }
 }
 
@@ -246,22 +255,36 @@ const GLOBALS = new Set([
   'btoa',
 ]);
 
+const TRACKED = new WeakMap<Record<string, unknown>, Set<string>>();
+
+export function track(scope: Record<string, unknown>, key: string): void {
+  let keys = TRACKED.get(scope);
+  if (!keys) {
+    keys = new Set();
+    TRACKED.set(scope, keys);
+  }
+  keys.add(key);
+}
+
 export function reset(
   scope: Record<string, unknown>,
   tools: string[] = [],
 ): void {
-  const keep = new Set([...GLOBALS, ...tools]);
-
-  for (const key of Object.keys(scope)) {
-    if (!keep.has(key)) {
-      const desc = Object.getOwnPropertyDescriptor(scope, key);
-      if (desc && desc.configurable) {
-        try {
-          delete scope[key];
-        } catch {
-          // ignore
+  const tracked = TRACKED.get(scope);
+  
+  if (tracked && tracked.size > 0) {
+    for (const key of tracked) {
+      if (!GLOBALS.has(key) && !tools.includes(key)) {
+        const desc = Object.getOwnPropertyDescriptor(scope, key);
+        if (desc && desc.configurable) {
+          try {
+            delete scope[key];
+          } catch {
+            // ignore
+          }
         }
       }
     }
+    tracked.clear();
   }
 }

@@ -22,11 +22,13 @@ function spawn(): Process {
 function runner(proc: Process, timeout: number): Runner {
   const run = async (request: Request, url: string, globals?: Record<string, unknown>, tools?: string[]): Promise<Output> => {
     const start = performance.now()
-    const res = wait(proc.worker)
+    const abort = new AbortController();
+    const res = wait(proc.worker, abort.signal)
 
     let tid: number | undefined
     const limit = new Promise<Output>((resolve) => {
       tid = setTimeout(() => {
+        abort.abort();
         resolve({
           ok: false,
           logs: [{
