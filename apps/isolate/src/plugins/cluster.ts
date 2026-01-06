@@ -8,6 +8,8 @@ interface PoolWorker {
   executor: Runner | null
   busy: boolean
   used: number
+  lastActive: number
+  health: 'ok' | 'suspected' | 'dead'
 }
 
 interface ClusterOptions {
@@ -39,12 +41,15 @@ class Cluster {
 
   private spawn(create: () => Process): PoolWorker {
     const handle = create()
+    const now = Date.now()
     const worker: PoolWorker = {
       id: nanoid(32),
       handle,
       executor: null,
       busy: false,
-      used: Date.now(),
+      used: now,
+      lastActive: now,
+      health: 'ok',
     }
     this.pool.push(worker)
     return worker
@@ -56,8 +61,28 @@ class Cluster {
 
   private cleanup() {
     const now = Date.now()
+    
+    // 健康检查：标记长时间无响应的Worker为dead
+    for (const w of this.pool) {
+      if (w.busy && now - w.lastActive > 60_000) {
+        // Worker忙碌超过60秒无响应
+        w.health = 'dead'
+      } else if (!w.busy && now - w.lastActive > 300_000) {
+        // Worker空闲超过5分钟无活动
+        w.health = 'suspected'
+      }
+    }
+    
+    // 清理dead状态的Worker
+    const dead = this.pool.filter(w => w.health === 'dead')
+    for (const worker of dead) {
+      console.warn(`[Cluster] Killing dead worker ${worker.id}`)
+      this.kill(worker)
+    }
+    
+    // 清理空闲过期的Worker（保持最小数量）
     const expired = this.pool.filter(
-      (w) => !w.busy && now - w.used > this.config.idle
+      (w) => !w.busy && w.health !== 'dead' && now - w.used > this.config.idle
     )
 
     for (const worker of expired) {
@@ -77,9 +102,11 @@ class Cluster {
   }
 
   private acquire(spawn: () => Process): PoolWorker | null {
-    const idle = this.pool.find((w) => !w.busy)
+    // 优先选择健康的空闲Worker
+    const idle = this.pool.find((w) => !w.busy && w.health === 'ok')
     if (idle) return idle
 
+    // 如果没有健康的Worker且池未满，创建新Worker
     if (this.pool.length < this.config.max) {
       return this.spawn(spawn)
     }
@@ -90,7 +117,12 @@ class Cluster {
   private release(worker: PoolWorker) {
     worker.busy = false
     worker.used = Date.now()
+    worker.lastActive = Date.now()
     worker.executor = null
+    // 恢复健康状态
+    if (worker.health === 'suspected') {
+      worker.health = 'ok'
+    }
   }
 
   async run(
@@ -118,10 +150,14 @@ class Cluster {
     }
 
     worker.busy = true
+    worker.lastActive = Date.now()  // 更新活跃时间
     worker.executor = runner(worker.handle, timeout)
 
     try {
       const out = await worker.executor.run(request, url, globals, tools)
+      
+      // 更新活跃时间
+      worker.lastActive = Date.now()
       
       const timeoutErr = out.logs?.some(
         log => log.level === 'exception' && log.name === 'TimeoutError'

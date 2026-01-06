@@ -1,18 +1,35 @@
-import type { Tool } from '../types.ts';
+import type { CryptoToolConfig, Tool } from '../types.ts';
 import { inject, proxy } from '../common.ts';
 
-export const crypto: Tool = {
-  name: 'crypto',
-  setup: (globals) => {
-    if (typeof self.crypto === 'undefined') {
-      return;
-    }
+export function createCrypto(config?: CryptoToolConfig): Tool {
+  return {
+    name: 'crypto',
+    setup: (globals) => {
+      if (typeof self.crypto === 'undefined') {
+        return;
+      }
 
-    const safe = proxy(
-      self.crypto,
-      ['getRandomValues', 'randomUUID', 'subtle'],
-    );
+      const defaults = ['getRandomValues', 'randomUUID'];
+      if (config?.subtle !== false) {
+        defaults.push('subtle');
+      }
 
-    inject(globals, 'crypto', safe);
-  },
-};
+      const safe = proxy(self.crypto, {
+        whitelist: config?.methods ?? defaults,
+        validator: (prop, args) => {
+          if (prop === 'getRandomValues') {
+            const limit = config?.limit ?? 65536;
+            const array = args[0] as { byteLength?: number };
+            if (array?.byteLength && array.byteLength > limit) {
+              throw new Error(`Array too large (max ${limit} bytes)`);
+            }
+          }
+        }
+      });
+
+      inject(globals, 'crypto', safe);
+    },
+  };
+}
+
+export const crypto = createCrypto();

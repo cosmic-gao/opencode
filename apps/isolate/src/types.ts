@@ -50,6 +50,13 @@ export interface Config {
   readonly maxSize: number;
   readonly timeout: number;
   readonly port: number;
+  readonly crypto?: CryptoToolConfig;
+}
+
+export interface CryptoToolConfig {
+  subtle?: boolean;
+  limit?: number;
+  methods?: string[];
 }
 
 export interface Context {
@@ -61,11 +68,12 @@ export interface Context {
   tools?: string[];
 }
 
-export interface ChannelMessage {
+export interface ChannelMessage<T = unknown> {
   type: 'channel';
   topic: string;
-  data: unknown;
-  source?: string;
+  data: T;
+  sender?: string;  // Worker ID for debugging
+  timestamp: number;  // Message timestamp
 }
 
 export interface IsolateHooks extends Hooks {

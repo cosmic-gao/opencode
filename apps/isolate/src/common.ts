@@ -1,17 +1,61 @@
 import { ensure } from 'errorish';
 import type { Fault, Registry, Tool } from './types.ts';
 
+export interface ProxyOptions<T extends object> {
+  whitelist: string[];
+  validator?: (prop: string, args: unknown[]) => void;
+  interceptor?: (prop: string, value: unknown) => unknown;
+  readonly?: boolean;
+}
+
 export function proxy<T extends object>(
   target: T,
-  whitelist: string[],
+  options: string[] | ProxyOptions<T>,
 ): T {
-  const allowed = new Set(whitelist);
+  const config = Array.isArray(options) 
+    ? { whitelist: options } 
+    : options;
+  
+  const allowed = new Set(config.whitelist);
 
   return new Proxy(target, {
     get(t, p: string | symbol) {
       if (typeof p === 'symbol') return Reflect.get(t, p);
-      if (allowed.has(p)) return Reflect.get(t, p);
-      return undefined;
+      if (!allowed.has(p)) return undefined;
+      
+      const value = Reflect.get(t, p);
+      
+      if (config.interceptor) {
+        return config.interceptor(p, value);
+      }
+      
+      if (typeof value === 'function' && config.validator) {
+        return new Proxy(value, {
+          apply(fn, thisArg, args) {
+            config.validator!(p, args);
+            return Reflect.apply(fn, thisArg, args);
+          }
+        });
+      }
+      
+      return value;
+    },
+
+    set(t, p: string | symbol, v) {
+      if (config.readonly) {
+        throw new Error('Object is readonly');
+      }
+      if (typeof p === 'symbol' || !allowed.has(p)) {
+        return false;
+      }
+      return Reflect.set(t, p, v);
+    },
+
+    deleteProperty(_t, _p: string | symbol) {
+      if (config.readonly) {
+        throw new Error('Object is readonly');
+      }
+      return false;
     },
 
     getOwnPropertyDescriptor(t, p: string | symbol) {
@@ -23,6 +67,12 @@ export function proxy<T extends object>(
     has(t, p: string | symbol) {
       if (typeof p === 'symbol') return Reflect.has(t, p);
       return allowed.has(p);
+    },
+    
+    ownKeys(t) {
+      return Reflect.ownKeys(t).filter(key => 
+        typeof key === 'symbol' || allowed.has(key)
+      );
     },
   });
 }
@@ -45,7 +95,8 @@ export function inject(
 ): void {
   const desc = Object.getOwnPropertyDescriptor(scope, name);
   if (desc && !desc.configurable) {
-    return; 
+    console.warn(`[inject] Property "${name}" is not configurable, skipping`);
+    return;
   }
 
   Object.defineProperty(scope, name, {
@@ -79,6 +130,32 @@ export function setup(items: Tool[], globals: Record<string, unknown>): void {
   }
 }
 
+export function install(scope: Record<string, unknown>, tools: Tool[]): string[] {
+  const installed: string[] = [];
+  try {
+    for (const tool of tools) {
+      tool.setup(scope);
+      installed.push(tool.name);
+    }
+    return installed;
+  } catch (error) {
+    for (const name of installed) {
+      try {
+        delete scope[name];
+      } catch {
+        // ignore
+      }
+    }
+    throw error;
+  }
+}
+
+export function provide(scope: Record<string, unknown>, data: Record<string, unknown>): void {
+  for (const [key, value] of Object.entries(data)) {
+    inject(scope, key, value);
+  }
+}
+
 export function bootstrap(
   scope: Record<string, unknown>,
   items: Tool[],
@@ -86,16 +163,19 @@ export function bootstrap(
   globals: Record<string, unknown> = {},
 ): void {
   const index = registry(items);
+  const selected: Tool[] = [];
 
   for (const name of names) {
     const tool = index[name];
     if (tool) {
-      tool.setup(scope);
+      selected.push(tool);
     }
   }
 
-  for (const [key, value] of Object.entries(globals)) {
-    inject(scope, key, value);
+  install(scope, selected);
+
+  if (Object.keys(globals).length > 0) {
+    provide(scope, globals);
   }
 }
 
@@ -123,6 +203,65 @@ export function stringify(value: unknown): string {
       });
     } catch {
       return String(value);
+    }
+  }
+}
+
+const GLOBALS = new Set([
+  'self',
+  'globalThis',
+  'console',
+  'performance',
+  'Object',
+  'Array',
+  'String',
+  'Number',
+  'Boolean',
+  'Date',
+  'Math',
+  'JSON',
+  'Promise',
+  'Map',
+  'Set',
+  'WeakMap',
+  'WeakSet',
+  'Symbol',
+  'Proxy',
+  'Reflect',
+  'Error',
+  'TypeError',
+  'RangeError',
+  'SyntaxError',
+  'TextEncoder',
+  'TextDecoder',
+  'Uint8Array',
+  'ArrayBuffer',
+  'setTimeout',
+  'clearTimeout',
+  'setInterval',
+  'clearInterval',
+  'queueMicrotask',
+  'structuredClone',
+  'atob',
+  'btoa',
+]);
+
+export function reset(
+  scope: Record<string, unknown>,
+  tools: string[] = [],
+): void {
+  const keep = new Set([...GLOBALS, ...tools]);
+
+  for (const key of Object.keys(scope)) {
+    if (!keep.has(key)) {
+      const desc = Object.getOwnPropertyDescriptor(scope, key);
+      if (desc && desc.configurable) {
+        try {
+          delete scope[key];
+        } catch {
+          // ignore
+        }
+      }
     }
   }
 }

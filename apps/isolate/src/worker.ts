@@ -1,6 +1,6 @@
 import type { Entry, Fault, Level, Output, Packet } from './types.ts';
 import { tools } from './tools/index.ts';
-import { bootstrap, bust, normalize, stringify } from './common.ts';
+import { bootstrap, bust, normalize, reset, stringify } from './common.ts';
 
 function capture(level: Level) {
   return (...args: unknown[]) => {
@@ -63,9 +63,11 @@ function pick(
 
 async function run(packet: Packet): Promise<Output> {
   const start = performance.now();
+  const scope = globalThis as Record<string, unknown>;
+  const names = packet.tools || [];
 
   try {
-    bootstrap(globalThis as Record<string, unknown>, tools, packet.tools, packet.globals);
+    bootstrap(scope, tools, names, packet.globals);
 
     const url = bust(packet.url);
     const mod = await import(url)
@@ -94,6 +96,8 @@ async function run(packet: Packet): Promise<Output> {
       ok: false,
       duration: Math.round(performance.now() - start),
     };
+  } finally {
+    reset(scope, names);
   }
 }
 
