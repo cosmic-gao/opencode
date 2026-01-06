@@ -1,21 +1,65 @@
 import { type Context as HonoContext, Hono } from 'hono'
 import type { Output } from './types.ts'
-import { createIsolate, type Isolate } from './kernel.ts'
+import { create, type Isolate } from './kernel.ts'
 
 const app = new Hono()
 
-let isolate: Isolate | null = null
+let instance: Isolate | null = null
+const cache = new Map<string, { time: number; count: number }>();
+const WINDOW = 1000;
+const LIMIT = 10000;
 
-async function getIsolate(): Promise<Isolate> {
-  if (!isolate) {
-    isolate = await createIsolate()
+async function isolate(): Promise<Isolate> {
+  if (!instance) {
+    instance = await create()
   }
-  return isolate
+  return instance
+}
+
+function purge(): void {
+  const cutoff = Date.now() - 60000;
+  for (const [key, val] of cache) {
+    if (val.time < cutoff) cache.delete(key);
+  }
+}
+
+async function hash(data: unknown): Promise<string> {
+  const buffer = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(JSON.stringify(data))
+  );
+  return Array.from(new Uint8Array(buffer))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function dedupe(key: string): boolean {
+  const now = Date.now();
+  const entry = cache.get(key);
+  
+  if (entry && now - entry.time < WINDOW) {
+    return false;
+  }
+  
+  cache.set(key, { time: now, count: (entry?.count ?? 0) + 1 });
+  
+  if (cache.size > LIMIT) {
+    purge();
+  }
+  
+  return true;
 }
 
 app.post('/execute', async (c: HonoContext) => {
-  const instance = await getIsolate()
-  const out = (await instance.execute(await c.req.json())) as Output
+  const body = await c.req.json();
+  const key = await hash(body);
+
+  if (!dedupe(key)) {
+    return c.json({ error: 'Duplicate request' }, 429);
+  }
+
+  const engine = await isolate()
+  const out = (await engine.execute(body)) as Output
   
   const large = out.logs?.some(
     log => log.level === 'exception' && log.name === 'PayloadTooLarge'

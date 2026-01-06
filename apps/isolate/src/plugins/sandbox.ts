@@ -23,54 +23,61 @@ function runner(proc: Process, timeout: number): Runner {
   const run = async (request: Request, url: string, globals?: Record<string, unknown>, tools?: string[]): Promise<Output> => {
     const start = performance.now()
     const abort = new AbortController();
-    const res = wait(proc.worker, abort.signal)
-
     let tid: number | undefined
-    const limit = new Promise<Output>((resolve) => {
-      tid = setTimeout(() => {
-        abort.abort();
-        resolve({
-          ok: false,
-          logs: [{
-            level: 'exception',
-            message: 'Execution timeout',
-            name: 'TimeoutError',
-            timestamp: Date.now(),
-          }],
-          duration: Math.round(performance.now() - start),
-        })
-      }, timeout)
-    })
 
-    const msg: Packet = {
-      code: request.code,
-      input: request.input as unknown,
-      entry: request.entry ?? 'default',
-      url,
-      tools, 
-      globals,
-    }
+    try {
+      const res = wait(proc.worker, abort.signal)
 
-    send(proc.worker, msg)
+      const limit = new Promise<Output>((resolve) => {
+        tid = setTimeout(() => {
+          abort.abort();
+          try {
+            proc.kill();
+          } catch {
+            // ignore
+          }
+          resolve({
+            ok: false,
+            logs: [{
+              level: 'exception',
+              message: 'Execution timeout',
+              name: 'TimeoutError',
+              timestamp: Date.now(),
+            }],
+            duration: Math.round(performance.now() - start),
+          })
+        }, timeout)
+      })
 
-    const out = await Promise.race([res, limit])
-    
-    if (tid !== undefined) {
-      clearTimeout(tid)
-    }
-    
-    const duration = Math.round(performance.now() - start)
-    
-    return {
-      ...out,
-      duration: duration,
+      const msg: Packet = {
+        code: request.code,
+        input: request.input as unknown,
+        entry: request.entry ?? 'default',
+        url,
+        tools, 
+        globals,
+      }
+
+      send(proc.worker, msg)
+
+      const out = await Promise.race([res, limit])
+      const duration = Math.round(performance.now() - start)
+      
+      return {
+        ...out,
+        duration: duration,
+      }
+    } finally {
+      if (tid !== undefined) {
+        clearTimeout(tid)
+      }
     }
   }
 
   return { run }
 }
 
-const wrappedFactory: Factory = {
+const factory: Factory = {
   spawn: () => {
     const proc = spawn();
     return proc;
@@ -95,11 +102,11 @@ export const SandboxPlugin: IsolatePlugin = {
 
     const hookedFactory: Factory = {
       spawn: () => {
-        const proc = wrappedFactory.spawn();
+        const proc = factory.spawn();
         api.onSpawn.call(proc);
         return proc;
       },
-      runner: wrappedFactory.runner,
+      runner: factory.runner,
     };
 
     (api.onWorker as APIHook<Factory>).provide(hookedFactory)

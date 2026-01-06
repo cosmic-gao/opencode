@@ -1,6 +1,6 @@
 import type { Entry, Fault, Level, Output, Packet } from './types.ts';
 import { tools } from './tools/index.ts';
-import { bootstrap, bust, normalize, reset, stringify } from './common.ts';
+import { bootstrap, bust, fault, reset, stringify } from './common.ts';
 
 function capture(level: Level) {
   return (...args: unknown[]) => {
@@ -23,39 +23,32 @@ console.info = capture('info');
 console.warn = capture('warn');
 console.error = capture('error');
 
-self.addEventListener('error', (event: ErrorEvent) => {
-  event.preventDefault();
-  const err = normalize(event.error);
-  const log: Entry = {
+function error(err: Fault): Entry {
+  return {
     level: 'exception',
     message: err.message,
     name: err.name,
     stack: err.stack,
     timestamp: Date.now(),
   };
+}
+
+self.addEventListener('error', (event: ErrorEvent) => {
+  event.preventDefault();
+  const log = error(fault(event.error));
   self.postMessage({ type: 'log', data: log });
 });
 
 self.addEventListener('unhandledrejection', (event: PromiseRejectionEvent) => {
   event.preventDefault();
-  const err = normalize(event.reason);
-  const log: Entry = {
-    level: 'exception',
-    message: err.message,
-    name: err.name,
-    stack: err.stack,
-    timestamp: Date.now(),
-  };
+  const log = error(fault(event.reason));
   self.postMessage({ type: 'log', data: log });
 });
 
-function pick(
-  module: Record<string, unknown>,
-  entry: string,
-): (input: unknown) => unknown | Promise<unknown> {
-  const fn = module[entry];
+function entry(module: Record<string, unknown>, name: string): (input: unknown) => unknown | Promise<unknown> {
+  const fn = module[name];
   if (typeof fn !== 'function') {
-    const err: Fault = { name: 'EntryError', message: `Entry "${entry}" is not a function` };
+    const err: Fault = { name: 'EntryError', message: `Entry "${name}" is not a function` };
     throw err;
   }
   return fn as (input: unknown) => unknown | Promise<unknown>;
@@ -72,7 +65,7 @@ async function run(packet: Packet): Promise<Output> {
     const url = bust(packet.url);
     const mod = await import(url)
     
-    const fn = pick(mod as Record<string, unknown>, packet.entry);
+    const fn = entry(mod as Record<string, unknown>, packet.entry);
     const out = await fn(packet.input);
 
     return {
@@ -81,7 +74,7 @@ async function run(packet: Packet): Promise<Output> {
       duration: Math.round(performance.now() - start),
     };
   } catch (e) {
-    const err = normalize(e);
+    const err = fault(e);
 
     const log: Entry = {
       level: 'exception',

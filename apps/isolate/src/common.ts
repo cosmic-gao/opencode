@@ -8,13 +8,15 @@ export interface ProxyOptions<T extends object> {
   readonly?: boolean;
 }
 
+function normalize<T extends object>(options: string[] | ProxyOptions<T>): ProxyOptions<T> {
+  return Array.isArray(options) ? { whitelist: options } : options;
+}
+
 export function proxy<T extends object>(
   target: T,
   options: string[] | ProxyOptions<T>,
 ): T {
-  const config = Array.isArray(options) 
-    ? { whitelist: options } 
-    : options;
+  const config = normalize(options);
   
   const allowed = new Set(config.whitelist);
 
@@ -107,12 +109,21 @@ export function inject(
   });
 }
 
-export function normalize(error: unknown): Fault {
+export function fault(error: unknown): Fault {
   const err = ensure(error);
+  const cleanStack = err.stack
+    ?.split('\n')
+    .map(line => {
+      return line
+        .replace(/file:\/\/\/[A-Z]:\/[^\s)]+/g, '[isolate]')
+        .replace(/https?:\/\/[^\s)]+/g, '[external]');
+    })
+    .join('\n');
+  
   return {
     name: err.name,
     message: err.message,
-    stack: err.stack,
+    stack: cleanStack,
   };
 }
 
@@ -271,10 +282,11 @@ export function reset(
   tools: string[] = [],
 ): void {
   const tracked = TRACKED.get(scope);
+  const toolSet = new Set(tools || []);
   
   if (tracked && tracked.size > 0) {
     for (const key of tracked) {
-      if (!GLOBALS.has(key) && !tools.includes(key)) {
+      if (!GLOBALS.has(key) && !toolSet.has(key)) {
         const desc = Object.getOwnPropertyDescriptor(scope, key);
         if (desc && desc.configurable) {
           try {

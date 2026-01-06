@@ -50,12 +50,18 @@ export const ChannelPlugin: IsolatePlugin = {
         }
       };
 
+      const cleanup = () => {
+        clients.delete(worker);
+        worker.removeEventListener('message', handler);
+      };
+
       worker.addEventListener('message', handler);
+      worker.addEventListener('error', cleanup, { once: true });
+      worker.addEventListener('messageerror', cleanup, { once: true });
 
       const originalKill = proc.kill;
       proc.kill = () => {
-        clients.delete(worker);
-        worker.removeEventListener('message', handler);
+        cleanup();
         originalKill.call(proc);
       };
     });

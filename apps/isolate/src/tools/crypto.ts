@@ -1,7 +1,26 @@
 import type { CryptoToolConfig, Tool } from '../types.ts';
 import { inject, proxy } from '../common.ts';
 
-export function createCrypto(config?: CryptoToolConfig): Tool {
+function validator(config: CryptoToolConfig | undefined) {
+  let count = 0;
+  const limit = 1000;
+
+  return (prop: string, args: unknown[]) => {
+    if (++count > limit) {
+      throw new Error(`Crypto operation limit exceeded (max ${limit})`);
+    }
+
+    if (prop === 'getRandomValues') {
+      const max = config?.limit ?? 65536;
+      const array = args[0] as { byteLength?: number };
+      if (array?.byteLength && array.byteLength > max) {
+        throw new Error(`Array too large (max ${max} bytes)`);
+      }
+    }
+  };
+}
+
+export function crypto(config?: CryptoToolConfig): Tool {
   return {
     name: 'crypto',
     setup: (globals) => {
@@ -16,15 +35,7 @@ export function createCrypto(config?: CryptoToolConfig): Tool {
 
       const safe = proxy(self.crypto, {
         whitelist: config?.methods ?? defaults,
-        validator: (prop, args) => {
-          if (prop === 'getRandomValues') {
-            const limit = config?.limit ?? 65536;
-            const array = args[0] as { byteLength?: number };
-            if (array?.byteLength && array.byteLength > limit) {
-              throw new Error(`Array too large (max ${limit} bytes)`);
-            }
-          }
-        }
+        validator: validator(config)
       });
 
       inject(globals, 'crypto', safe);
@@ -32,4 +43,4 @@ export function createCrypto(config?: CryptoToolConfig): Tool {
   };
 }
 
-export const crypto = createCrypto();
+export default crypto();

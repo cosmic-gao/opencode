@@ -40,7 +40,10 @@ class Cluster {
     this.schedule()
   }
 
-  private spawn(create: () => Process): PoolWorker {
+  private spawn(create: () => Process): PoolWorker | null {
+    if (this.pool.length >= this.config.max) {
+      return null;
+    }
     const handle = create()
     const now = Date.now()
     const worker: PoolWorker = {
@@ -60,15 +63,23 @@ class Cluster {
     this.interval = setInterval(() => this.cleanup(), 30_000)
   }
 
+  private check(worker: PoolWorker, now: number): void {
+    if (worker.busy && now - worker.lastActive > 60_000) {
+      worker.health = 'dead'
+    } else if (!worker.busy && now - worker.lastActive > 300_000) {
+      worker.health = 'suspected'
+    }
+  }
+
+  private expire(worker: PoolWorker, now: number): boolean {
+    return !worker.busy && worker.health !== 'dead' && now - worker.used > this.config.idle
+  }
+
   private cleanup() {
     const now = Date.now()
     
     for (const w of this.pool) {
-      if (w.busy && now - w.lastActive > 60_000) {
-        w.health = 'dead'
-      } else if (!w.busy && now - w.lastActive > 300_000) {
-        w.health = 'suspected'
-      }
+      this.check(w, now)
     }
     
     const dead = this.pool.filter(w => w.health === 'dead')
@@ -77,14 +88,17 @@ class Cluster {
       this.kill(worker)
     }
     
-    const expired = this.pool.filter(
-      (w) => !w.busy && w.health !== 'dead' && now - w.used > this.config.idle
-    )
+    const expired = this.pool.filter(w => this.expire(w, now))
 
     for (const worker of expired) {
       if (this.pool.length <= this.config.min) break
       this.kill(worker)
     }
+  }
+
+  private remove(worker: PoolWorker): void {
+    const index = this.pool.indexOf(worker)
+    if (index >= 0) this.pool.splice(index, 1)
   }
 
   private kill(worker: PoolWorker) {
@@ -93,30 +107,35 @@ class Cluster {
     } catch {
       // ignore
     }
-    const index = this.pool.indexOf(worker)
-    if (index >= 0) this.pool.splice(index, 1)
+    this.remove(worker)
+  }
+
+  private find(): PoolWorker | null {
+    return this.pool.find((w) => !w.busy && w.health === 'ok') ?? null
   }
 
   private acquire(spawn: () => Process): PoolWorker | null {
-    const idle = this.pool.find((w) => !w.busy && w.health === 'ok')
+    const idle = this.find()
     if (idle) return idle
 
     if (this.pool.length < this.config.max) {
-      return this.spawn(spawn)
+      const worker = this.spawn(spawn);
+      return worker;
     }
 
     return null
   }
 
   async warmup(spawn: () => Process, count: number): Promise<void> {
+    const needed = Math.min(count, this.config.max - this.pool.length);
     const tasks = []
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < needed; i++) {
       tasks.push(Promise.resolve().then(() => this.spawn(spawn)))
     }
     await Promise.all(tasks)
   }
 
-  private release(worker: PoolWorker) {
+  private restore(worker: PoolWorker): void {
     worker.busy = false
     worker.used = Date.now()
     worker.lastActive = Date.now()
@@ -124,6 +143,10 @@ class Cluster {
     if (worker.health === 'suspected') {
       worker.health = 'ok'
     }
+  }
+
+  private release(worker: PoolWorker) {
+    this.restore(worker)
   }
 
   async run(

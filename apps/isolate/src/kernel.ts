@@ -2,13 +2,13 @@ import { createManager, createAsyncHook, createSyncHook } from '@opencode/plugab
 import type { IsolateHooks, IsolatePlugin, Context, Config, Output, Request, Process } from './types.ts'
 import { GuardPlugin, LoaderPlugin, SandboxPlugin, ClusterPlugin, LoggerPlugin, ToolsetPlugin, ChannelPlugin } from './plugins/index.ts'
 
-const DEFAULT_CONFIG: Config = {
+const DEFAULT: Config = {
   maxSize: 100_000,
   timeout: 3_000,
   port: 8787,
 }
 
-function createHooks(): IsolateHooks {
+function wire(): IsolateHooks {
   return {
     onValidate: createAsyncHook<Request>(),
     onLoad: createAsyncHook<Context>(),
@@ -18,7 +18,7 @@ function createHooks(): IsolateHooks {
   }
 }
 
-function createContext(config: Config, request: Request): Context {
+function context(config: Config, request: Request): Context {
   return {
     config,
     request,
@@ -39,13 +39,13 @@ export interface Isolate {
   hasPlugin: (name: string) => boolean
 }
 
-export async function createIsolate(options: IsolateConfig = {}): Promise<Isolate> {
-  const config: Config = { ...DEFAULT_CONFIG, ...options.config }
+export async function create(options: IsolateConfig = {}): Promise<Isolate> {
+  const config: Config = { ...DEFAULT, ...options.config }
   const cluster = options.useCluster ?? true
 
   const manager = createManager<IsolateHooks, Context>({
-    hooks: createHooks(),
-    context: createContext(config, { code: '', input: undefined, entry: 'default', timeout: config.timeout }),
+    hooks: wire(),
+    context: context(config, { code: '', input: undefined, entry: 'default', timeout: config.timeout }),
   })
 
   manager.use([
@@ -64,17 +64,17 @@ export async function createIsolate(options: IsolateConfig = {}): Promise<Isolat
 
   await manager.init()
 
-  const hooks = manager.getHooks()
+  const pipe = manager.getHooks()
 
   async function execute(input: unknown): Promise<Output> {
     try {
-      const request = await hooks.onValidate.call(input as Request)
-      manager.setContext(createContext(config, request))
+      const request = await pipe.onValidate.call(input as Request)
+      manager.setContext(context(config, request))
       let ctx = manager.getContext()
-      ctx = await hooks.onLoad.call(ctx)
-      ctx = await hooks.onExecute.call(ctx)
+      ctx = await pipe.onLoad.call(ctx)
+      ctx = await pipe.onExecute.call(ctx)
       if (ctx.output) {
-        return await hooks.onFormat.call(ctx.output)
+        return await pipe.onFormat.call(ctx.output)
       }
       return {
         ok: false,
