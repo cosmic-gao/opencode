@@ -1,4 +1,5 @@
 import type { Plugin, AsyncHook, Hooks, AnyHook } from '@opencode/plugable'
+import type { Tool, Registry } from './tools/index.ts'
 
 export type Fault = { name: string; message: string; stack?: string }
 
@@ -46,6 +47,7 @@ export interface Context {
   request: Request
   url: string
   output: Output | null
+  globals?: Record<string, unknown>
 }
 
 export interface IsolateHooks extends Hooks {
@@ -74,4 +76,10 @@ export interface WorkerFactory {
 
 export interface LoggerFactory {
   filter: (logs: readonly LogEntry[], options?: { minLevel?: LogLevel; maxEntries?: number }) => LogEntry[]
+}
+
+export interface ToolsetFactory {
+  tools: () => Tool[]
+  registry: () => Registry
+  setup: (tools: Tool[], globals: Record<string, unknown>) => void
 }
