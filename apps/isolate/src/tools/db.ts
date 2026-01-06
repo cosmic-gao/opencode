@@ -83,6 +83,10 @@ class Database<T extends Schema> {
 
 export const db: Tool = {
   name: 'database',
+  permissions: {
+    env: ["DATABASE_URL"],
+    net: ["*"],
+  },
   setup(globals: Record<string, unknown>): void {
     const api = lazy(() => Database.create());
     inject(globals, 'db', api);

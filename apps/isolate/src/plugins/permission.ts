@@ -1,29 +1,61 @@
-import type { IsolatePlugin, Context } from '../types.ts';
+import type { IsolatePlugin, Context, Toolset } from '../types.ts';
+import { type APIHook, createAPIHook } from '@opencode/plugable';
+import { merge } from '../common.ts';
 
 const DEFAULT: Deno.PermissionOptions = "none";
 
-function normalize(perms?: Deno.PermissionOptions): Deno.PermissionOptions {
-  if (!perms) return DEFAULT;
+function normalize(permission?: Deno.PermissionOptions): Deno.PermissionOptions {
+  if (!permission) return DEFAULT;
   
-  if (perms === "inherit") {
+  if (permission === "inherit") {
     console.warn('[Permission] inherit rejected, using none');
     return DEFAULT;
   }
   
-  return perms;
+  return permission;
 }
 
 export const PermissionPlugin: IsolatePlugin = {
   name: 'opencode:permission',
   pre: ['opencode:sandbox'],
   post: [],
-  required: ['opencode:guard'],
+  required: ['opencode:guard', 'opencode:tools'],
   usePlugins: [],
-  registryHook: {},
+  registryHook: {
+    onToolset: createAPIHook<Toolset>(),
+  },
 
   setup(api) {
+    const toolset = (api.onToolset as APIHook<Toolset> | undefined)?.use() ?? null;
+
     api.onLoad.tap((ctx: Context) => {
-      const permissions = normalize(ctx.request.permissions);
+      const request = ctx.request.permissions;
+      
+      let tool: Deno.PermissionOptions = "none";
+      
+      if (toolset && Array.isArray(ctx.tools) && ctx.tools.length > 0) {
+        const registry = toolset.registry();
+        
+        for (const name of ctx.tools) {
+          const item = registry[name];
+          if (!item || !item.permissions) continue;
+          
+          const permission = typeof item.permissions === "function"
+            ? item.permissions(ctx)
+            : item.permissions;
+          
+          tool = merge(tool, permission);
+        }
+      }
+      
+      let final: Deno.PermissionOptions;
+      if (!request) {
+        final = tool;
+      } else {
+        final = merge(request, tool);
+      }
+      
+      const permissions = normalize(final);
       
       const updated: Context = {
         ...ctx,

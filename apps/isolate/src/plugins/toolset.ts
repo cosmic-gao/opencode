@@ -29,11 +29,19 @@ export const ToolsetPlugin: IsolatePlugin = {
     (api.onToolset as APIHook<Toolset>).provide(factory);
 
     api.onLoad.tap((ctx: Context) => {
-      const items = factory.tools();
+      const requested = ctx.request.tools ?? [];
+      const registry = factory.registry();
+
+      const valid: string[] = [];
+      for (const name of requested) {
+        if (name in registry) {
+          valid.push(name);
+        }
+      }
 
       const updated: Context = {
         ...ctx,
-        tools: items.map((t) => t.name),
+        tools: valid,
       };
 
       api.setContext(updated);

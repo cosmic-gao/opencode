@@ -23,6 +23,7 @@ function validator(config: CryptoToolConfig | undefined) {
 export function crypto(config?: CryptoToolConfig): Tool {
   return {
     name: 'crypto',
+    permissions: "none",
     setup: (globals) => {
       if (typeof self.crypto === 'undefined') return;
 

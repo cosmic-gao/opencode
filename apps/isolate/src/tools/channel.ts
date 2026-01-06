@@ -38,6 +38,7 @@ function process(): void {
 
 export const channel: Tool = {
   name: 'channel',
+  permissions: "none",
   setup: (globals) => {
     listeners.clear();
     queue.length = 0;

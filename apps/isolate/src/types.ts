@@ -2,8 +2,8 @@ import type { AnyHook, AsyncHook, Hooks, Plugin, SyncHook } from '@opencode/plug
 
 export interface Tool {
   name: string;
-  env?: string[];
   setup: (globals: Record<string, unknown>) => void | Promise<void>;
+  permissions?: Deno.PermissionOptions | ((ctx: Context) => Deno.PermissionOptions);
 }
 
 export interface Registry {
@@ -35,6 +35,7 @@ export interface Request {
   readonly entry?: string;
   readonly timeout?: number;
   readonly permissions?: Deno.PermissionOptions;
+  readonly tools?: string[];
 }
 
 export type Reply = Output;
@@ -75,8 +76,8 @@ export interface ChannelMessage<T = unknown> {
   type: 'channel';
   topic: string;
   data: T;
-  sender?: string;  // Worker ID for debugging
-  timestamp: number;  // Message timestamp
+  sender?: string;
+  timestamp: number;
 }
 
 export interface IsolateHooks extends Hooks {
@@ -105,7 +106,7 @@ export interface Runner {
 }
 
 export interface Factory {
-  spawn: (permissions?: Deno.PermissionOptions) => Process;
+  spawn: (permissions?: Deno.PermissionOptions, tools?: string[]) => Process;
   runner: (proc: Process, timeout: number) => Runner;
 }
 
@@ -118,3 +119,5 @@ export interface Toolset {
   registry: () => Registry;
   setup: (tools: Tool[], globals: Record<string, unknown>) => void;
 }
+
+
