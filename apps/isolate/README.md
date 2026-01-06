@@ -1645,6 +1645,35 @@ curl -X POST http://localhost:8787/execute \
   }'
 ```
 
+#### 使用通信工具
+
+Channel 工具用于 **Worker 间通信**，消息会广播给集群中的**其他 Worker**（不包括发送者自己）。
+
+**单次请求示例**（仅演示API，无法接收消息）：
+
+```bash
+curl -X POST http://localhost:8787/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "export default (msg) => { channel.emit(\"broadcast\", { text: msg }); return \"Message sent to other workers\" }",
+    "input": "Hello from curl"
+  }'
+```
+
+**预期响应**:
+```json
+{
+  "ok": true,
+  "result": "Message sent to other workers",
+  "duration": 2
+}
+```
+
+**注意**：
+- Channel 消息不会发送给发送者自己
+- 需要至少 2 个并发请求才能展示完整的通信效果
+- 适用于需要 Worker 间协作的场景（如分布式任务、状态同步）
+
 ---
 
 ## 技术细节

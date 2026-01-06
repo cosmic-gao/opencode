@@ -10,7 +10,7 @@ export const crypto: Tool = {
 
     const safe = proxy(
       self.crypto,
-      ['getRandomValues', 'randomUUID'],
+      ['getRandomValues', 'randomUUID', 'subtle'],
     );
 
     inject(globals, 'crypto', safe);

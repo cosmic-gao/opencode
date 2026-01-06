@@ -1,30 +1,11 @@
 import type { Entry, Fault, Level, Output, Packet } from './types.ts';
 import { tools } from './tools/index.ts';
-import { bootstrap, normalize } from './common.ts';
-
-function safeStringify(value: unknown): string {
-  try {
-    return JSON.stringify(value)
-  } catch {
-    try {
-      const seen = new WeakSet()
-      return JSON.stringify(value, (_k, v) => {
-        if (typeof v === 'object' && v !== null) {
-          if (seen.has(v)) return '[Circular]'
-          seen.add(v)
-        }
-        return v
-      })
-    } catch {
-      return String(value)
-    }
-  }
-}
+import { bootstrap, bust, normalize, stringify } from './common.ts';
 
 function capture(level: Level) {
   return (...args: unknown[]) => {
     const msg = args
-      .map((x) => (typeof x === 'string' ? x : safeStringify(x)))
+      .map((x) => (typeof x === 'string' ? x : stringify(x)))
       .join(' ');
 
     const log: Entry = {
@@ -86,9 +67,8 @@ async function run(packet: Packet): Promise<Output> {
   try {
     bootstrap(globalThis as Record<string, unknown>, tools, packet.tools, packet.globals);
 
-    const now = Date.now().toString(36)
-    const suffix = packet.url.includes('?') ? '&' : '?'
-    const mod = await import(packet.url + suffix + 'v=' + now)
+    const url = bust(packet.url);
+    const mod = await import(url)
     
     const fn = pick(mod as Record<string, unknown>, packet.entry);
     const out = await fn(packet.input);
@@ -118,6 +98,12 @@ async function run(packet: Packet): Promise<Output> {
 }
 
 self.addEventListener('message', async (event: MessageEvent) => {
-  const out = await run(event.data as Packet);
+  const data = event.data;
+  
+  if (!data || typeof data !== 'object' || !data.url) {
+    return;
+  }
+  
+  const out = await run(data as Packet);
   self.postMessage({ type: 'result', data: out });
 });

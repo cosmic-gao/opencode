@@ -98,3 +98,31 @@ export function bootstrap(
     inject(scope, key, value);
   }
 }
+
+export function bust(url: string): string {
+  if (url.startsWith('data:')) {
+    return url;
+  }
+  const now = Date.now().toString(36);
+  const suffix = url.includes('?') ? '&' : '?';
+  return url + suffix + 'v=' + now;
+}
+
+export function stringify(value: unknown): string {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    try {
+      const seen = new WeakSet();
+      return JSON.stringify(value, (_k, v) => {
+        if (typeof v === 'object' && v !== null) {
+          if (seen.has(v)) return '[Circular]';
+          seen.add(v);
+        }
+        return v;
+      });
+    } catch {
+      return String(value);
+    }
+  }
+}
