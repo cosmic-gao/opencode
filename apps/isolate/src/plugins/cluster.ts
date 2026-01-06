@@ -1,7 +1,9 @@
 import type { IsolatePlugin, Request, Output, WorkerHandle, WorkerExecutor, WorkerFactory } from '../types.ts'
 import type { APIHook } from '@opencode/plugable'
+import { customAlphabet } from 'nanoid'
 
 interface PoolWorker {
+  id: string
   handle: WorkerHandle
   executor: WorkerExecutor | null
   busy: boolean
@@ -13,6 +15,8 @@ interface ClusterOptions {
   max: number
   idle: number
 }
+
+const nanoid = customAlphabet('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz', 32)
 
 class Cluster {
   private pool: PoolWorker[] = []
@@ -38,6 +42,7 @@ class Cluster {
   private spawn(createWorker: () => WorkerHandle): PoolWorker {
     const handle = createWorker()
     const worker: PoolWorker = {
+      id: nanoid(),
       handle,
       executor: null,
       busy: false,
