@@ -91,6 +91,28 @@ Isolate 是一个基于 Deno 运行时的安全沙箱代码执行引擎。它允
 
 ---
 
+## 最新特性
+
+### 1. 通信总线 (Bus System)
+
+实现了基于 Host-Mediated Star Topology 的 Worker 间通信机制：
+
+- **Channel Plugin**: 运行在 Host 端的消息代理
+- **Channel Tool**: 注入到 Worker 全局的 API (`channel`)
+- **Isolation**: 基于 `postMessage` 的安全通信，无需 SharedArrayBuffer
+
+### 2. 工具链重构 (Toolchain)
+
+- **分离设计**: 工具实现 (`src/tools/`) 与管理逻辑 (`src/plugins/toolset.ts`) 分离
+- **安全注入**: 使用 `inject()` 辅助函数确保全局变量不可篡改 (`configurable: false`, `writable: false`)
+- **API 冻结**: 关键工具 API (如 `channel`) 被 `Object.freeze()` 锁定
+
+### 3. 生命周期增强
+
+- **onSpawn Hook**: 新增 Worker 创建后的同步钩子，允许插件在代码执行前介入 Worker 实例
+
+---
+
 ## 架构设计
 
 ### 系统架构图
@@ -225,40 +247,65 @@ type Packet = {
 - `Error("bad")` - 无效请求格式
 - `PayloadTooLarge` - 代码超过大小限制
 
-### 3. kernel.ts - 微内核
+### 3. kernel.ts - 微内核架构
 
-系统的核心协调器，基于插件系统驱动：
+系统的核心协调器，采用 `@opencode/plugable` 构建的 `Manager` 模式驱动。
+
+**初始化流程**:
+
+1.  **加载配置**: 合并用户配置与默认配置。
+2.  **创建 Manager**: 实例化 `AsyncParallelHook` 管理器。
+3.  **注册插件**: 使用 `manager.use()` 加载内置插件 (Guard -> Toolset -> Loader -> Channel -> Cluster --> Logger)。
+4.  **构建 API**: 通过 `syncHook` 暴露核心 API (如 `spawn`, `toolset`)。
 
 ```typescript
-import { createIsolate } from './kernel.ts'
+// 核心初始化逻辑
+export async function createIsolate(options: Options = {}) {
+  // ... 配置合并 ...
+  
+  const manager = new Manager<Context>(/* ... */);
+  
+  // 注册默认插件链
+  manager.use([
+    GuardPlugin,    // 1. 验证
+    ToolsetPlugin,  // 2. 工具注入
+    LoaderPlugin,   // 3. 代码加载
+    SandboxPlugin,  // 4. 沙箱环境 (作为基础)
+    ChannelPlugin,  // 5. 通信总线
+    ClusterPlugin,  // 6. 进程池管理 (依赖 Sandbox API)
+    LoggerPlugin,   // 7. 日志处理
+  ]);
 
-const isolate = await createIsolate({
-  config: { timeout: 5000 },
-  plugins: [MyPlugin]
-})
-
-const result = await isolate.execute({
-  code: 'export default (x) => x * 2',
-  input: 21
-})
+  // ...
+  return { execute: /* ... */ }
+}
 ```
 
-### 4. sandbox.ts - 沙箱管理器
+### 4. sandbox.ts - 沙箱执行原理
 
-负责 Worker 的完整生命周期管理：
+**沙箱隔离机制**:
 
-**核心功能**：
-- 创建隔离 Worker（`permissions: "none"`）
-- 实现超时控制机制
-- 管理 Worker 终止
+Isolate 的安全性不仅仅依赖于 Deno 的权限位，还包括运行时的上下文隔离。
 
-**执行流程**：
+*   **Global Inject (安全注入)**: 利用 `Object.defineProperty` 将工具注入到 Worker 全局作用域 (`configurable: false`, `writable: false`)，防止用户代码修改。
+*   **Proxy Protection**: (可选) 对敏感对象使用 `Proxy` 进行访问控制。
+*   **Error Normalization**: 使用 `errorish` 库将 Worker 内的所有异常（包括非标准 `throw`）标准化为序列化的 `Fault` 对象。
 
+**执行生命周期**:
+
+```mermaid
+sequenceDiagram
+    Kernel->>Sandbox: execute(request)
+    Sandbox->>ToolChain: bootstrap(tools)
+    ToolChain->>Global: inject(api)
+    Sandbox->>Worker: postMessage(packet)
+    Worker->>DynamicImport: import(dataUrl)
+    DynamicImport->>UserCode: entry(input)
+    UserCode-->>Worker: result
+    Worker-->>Sandbox: postMessage(output)
 ```
-1. 创建 Worker (permissions: none)
-2. 启动超时计时器
-3. 发送执行请求
-4. 等待结果或超时
+
+### 5. worker.ts - Worker 运行时
 5. 终止 Worker
 6. 返回结果
 ```
@@ -289,7 +336,31 @@ console.log = (...a) => {
 }
 ```
 
-### 6. loader.ts - 代码加载器
+### 6. channel.ts - 通信总线原理
+
+采用 **Host-Mediated Star Topology** (宿主中介星型拓扑) 架构。
+
+1.  **Event Listen**: Worker 内部通过 `channel.emit` 发送消息 (`postMessage`)。
+2.  **Host Router**: `ChannelPlugin` 在宿主端监听所有 Worker 的 message 事件。
+3.  **Broadcast**: 宿主识别 `type: 'channel'` 消息，并根据 `topic` 查找订阅者，或者直接广播给同一 Cluster 中的其他 Worker。
+
+**路由逻辑 (ChannelPlugin)**:
+
+```typescript
+// 伪代码演示
+worker.onmessage = (event) => {
+  if (event.data.type === 'channel') {
+    // 广播给其他 Process
+    cluster.forEach(otherWorker => {
+      if (otherWorker !== worker) {
+        otherWorker.postMessage(event.data);
+      }
+    });
+  }
+}
+```
+
+### 7. loader.ts - 代码加载器
 
 将代码字符串转换为可导入的 Data URL：
 
@@ -300,7 +371,7 @@ function encode(code: string): string {
 }
 ```
 
-### 7. bridge.ts - 通信桥接
+### 8. bridge.ts - 通信桥接
 
 处理主线程与 Worker 之间的消息传递：
 
@@ -312,7 +383,7 @@ function send(w: Worker, msg: unknown): void
 function wait(w: Worker): Promise<Reply>
 ```
 
-### 8. server.ts - HTTP 服务
+### 9. server.ts - HTTP 服务
 
 基于 Hono 框架的 HTTP 服务端点：
 
@@ -354,7 +425,7 @@ LoggerPlugin → onLogger (APIHook) + onFormat
 
 ### 内置插件
 
-Isolate 包含 6 个内置插件，默认使用 **GuardPlugin + ToolsetPlugin + LoaderPlugin + ClusterPlugin + LoggerPlugin** 组合：
+Isolate 包含 7 个内置插件，默认使用 **GuardPlugin + ToolsetPlugin + LoaderPlugin + ChannelPlugin + ClusterPlugin + LoggerPlugin** 组合：
 
 ### GuardPlugin ✅
 
@@ -368,6 +439,17 @@ Isolate 包含 6 个内置插件，默认使用 **GuardPlugin + ToolsetPlugin + 
 
 **Hook**: `onLoad`  
 **依赖**: `opencode:guard`
+
+### ChannelPlugin ✅
+
+通信频道插件，提供 Worker 间消息总线功能。**（默认启用）**
+
+**特性**：
+- 建立主线程消息路由 (Router)
+- 监听 Worker 发出的广播消息
+- 自动注册 `onSpawn` 钩子拦截新 Worker
+
+**Hook**: `onSpawn`
 
 ### ClusterPlugin ✅
 
@@ -472,6 +554,7 @@ interface Toolset {
 | 工具 | 说明 | 注入内容 |
 |------|------|----------|
 | `crypto` | Web Crypto API | `globalThis.crypto` |
+| `channel` | Worker 通信 | `globalThis.channel` |
 
 **添加自定义工具**：
 
@@ -522,6 +605,85 @@ import { createIsolate, SandboxPlugin } from '@opencode/isolate'
 const isolate = await createIsolate({
   plugins: [SandboxPlugin]  // 会自动加载 GuardPlugin 和 LoaderPlugin
 })
+```
+
+---
+
+## 插件与工具配置指南
+
+### GuardPlugin 配置
+
+控制请求校验规则。
+
+```typescript
+const isolate = await createIsolate({
+  config: {
+    maxSize: 50 * 1024, // 代码最大 50KB (默认 100KB)
+  }
+});
+```
+
+### ClusterPlugin 配置
+
+管理 Worker 进程池的行为。
+
+```typescript
+const isolate = await createIsolate({
+  config: {
+    cluster: {
+      min: 4,         // 最小保留 4 个 Worker
+      max: 16,        // 最大扩容到 16 个
+      idle: 60_000,   // 空闲 60秒后销毁
+    }
+  }
+});
+```
+
+### LoggerPlugin 配置
+
+过滤不需要的日志。
+
+```typescript
+// 目前 LoggerPlugin 主要通过 system config 自动工作
+// 可通过 filter 钩子自定义，参考架构设计中的 onLogger
+```
+
+### Channel 工具与 API
+
+`channel` 工具已默认注入到 Worker 环境中。
+
+**API 签名**:
+
+```typescript
+interface Channel {
+  // 发送广播消息
+  emit(topic: string, data: unknown): void;
+  // 订阅主题
+  on(topic: string, handler: (data: unknown) => void): void;
+  // 取消订阅
+  off(topic: string, handler: (data: unknown) => void): void;
+}
+declare const channel: Channel;
+```
+
+**使用示例**:
+
+```javascript
+// Worker A: 数据生产者
+export default () => {
+  setInterval(() => {
+    channel.emit('heartbeat', { status: 'alive', time: Date.now() });
+  }, 1000);
+}
+```
+
+```javascript
+// Worker B: 数据消费者
+export default () => {
+  channel.on('heartbeat', (data) => {
+    console.log('收到心跳:', data);
+  });
+}
 ```
 
 ---
@@ -601,11 +763,11 @@ export default async (data) => {
 // 1. 定义工具
 import type { Tool } from './types.ts'
 
-export const logger: Tool = {
-  name: 'logger',
-  description: '结构化日志工具',
+export const simpleLogger: Tool = {
+  name: 'simpleLogger',
+  description: '简单的结构化日志工具',
   setup: (globals) => {
-    globals.logger = {
+    globals.simpleLogger = {
       info: (msg: string) => console.log(`[INFO] ${msg}`),
       error: (msg: string) => console.error(`[ERROR] ${msg}`),
       debug: (msg: string) => console.log(`[DEBUG] ${msg}`)
@@ -615,11 +777,11 @@ export const logger: Tool = {
 
 // 2. 注册到工具数组
 // tools/index.ts
-import { logger } from './logger.ts'
+import { simpleLogger } from './simpleLogger.ts'
 
 export const tools: Tool[] = [
   crypto,
-  logger,  // 添加新工具
+  simpleLogger,  // 添加新工具
 ]
 ```
 
@@ -628,14 +790,14 @@ export const tools: Tool[] = [
 ```javascript
 // 用户代码
 export default (data) => {
-  logger.info('开始处理数据')
+  simpleLogger.info('开始处理数据')
   
   try {
     const result = processData(data)
-    logger.info('处理完成')
+    simpleLogger.info('处理完成')
     return result
   } catch (error) {
-    logger.error(`处理失败: ${error.message}`)
+    simpleLogger.error(`处理失败: ${error.message}`)
     throw error
   }
 }
@@ -1383,32 +1545,86 @@ deno task dev
 pnpm dev
 ```
 
-### 代码示例
+### 插件配置 (Plugin Configuration)
 
-#### 基本用法
+Isolate 的行为可以通过 `Config` 对象进行精细控制：
+
+#### 1. 守卫插件 (Guard Plugin)
+控制代码执行的安全限制，防止恶意代码占用过多资源。
+
+```typescript
+const isolate = await createIsolate({
+  config: {
+    // 代码最大体积 (bytes), 默认 100KB
+    maxSize: 100_000, 
+    // 执行超时时间 (ms), 默认 3000ms
+    timeout: 3_000, 
+  }
+})
+```
+
+#### 2. 集群插件 (Cluster Plugin)
+管理 Worker 资源池以提升高并发性能。
+
+```typescript
+// 默认启用集群模式
+const isolate = await createIsolate({
+  useCluster: true, // 设置为 false 可禁用集群，每次新建 Worker
+  // 如果需要自定义集群参数，需在源码或配置加载处修改 ClusterOptions
+  // 默认策略: min=2, max=8, idle=120000ms
+})
+```
+
+#### 3. 日志插件 (Logger Plugin)
+自动捕获 `console` 输出。可以通过 `onLogger` 钩子自定义日志处理逻辑，包括日志级别过滤 (`log`, `info`, `warn`, `error`) 和条数限制。
+
+### 内置工具库 (Tools API)
+
+在沙箱内运行的代码中，可以直接使用以下预置工具：
+
+#### 通信工具 (Channel)
+
+用于 Worker 实例间的实时消息广播。适用于需要多个 Worker 协同工作的场景。
+
+**API 定义**:
+*   `channel.emit(topic: string, data: any)`: 发送消息到特定主题。此消息会被广播给集群中的其他所有 Worker。
+*   `channel.on(topic: string, handler: Function)`: 订阅特定主题的消息。
+*   `channel.off(topic: string, handler: Function)`: 取消订阅。
+
+**使用示例**:
 
 ```javascript
-// 用户代码
-export default function(input) {
-  return input * 2
+// Worker A
+export default function() {
+  // 向 'chat' 主题广播消息
+  channel.emit('chat', { user: 'Alice', text: 'Hello from Worker A' });
+  return 'Sent';
 }
 ```
 
+```javascript
+// Worker B
+export default async function() {
+  return new Promise((resolve) => {
+    // 监听 'chat' 主题
+    channel.on('chat', (msg) => {
+      console.log(`Received: ${msg.text}`);
+      resolve(msg);
+    });
+  });
+}
+```
+
+### 基础请求示例
+
+#### 执行简单代码
 ```bash
 curl -X POST http://localhost:8787/execute \
   -H "Content-Type: application/json" \
   -d '{"code": "export default (x) => x * 2", "input": 21}'
 ```
 
-#### 使用自定义入口函数
-
-```javascript
-// 用户代码
-export function add(x) {
-  return x.a + x.b
-}
-```
-
+#### 指定入口函数
 ```bash
 curl -X POST http://localhost:8787/execute \
   -H "Content-Type: application/json" \
@@ -1419,111 +1635,56 @@ curl -X POST http://localhost:8787/execute \
   }'
 ```
 
-#### 带日志输出
-
-```javascript
-// 用户代码
-export default function(name) {
-  console.log("Hello,", name)
-  console.info("Processing...")
-  return `Welcome, ${name}!`
-}
-```
-
-**响应**：
-
-```json
-{
-  "ok": true,
-  "result": "Welcome, Alice!",
-  "logs": [
-    { "level": "log", "message": "Hello, Alice", "timestamp": 1234567890 },
-    { "level": "info", "message": "Processing...", "timestamp": 1234567891 }
-  ],
-  "duration": 12
-}
+#### 使用内置工具
+```bash
+curl -X POST http://localhost:8787/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "export default async (msg) => { const hash = await crypto.subtle.digest(\"SHA-256\", new TextEncoder().encode(msg)); return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, \"0\")).join(\"\") }",
+    "input": "hello world"
+  }'
 ```
 
 ---
 
 ## 技术细节
 
-### Data URL 代码加载
+### 核心架构 (Kernel & Plugins)
 
-用户代码通过 Base64 编码转换为 Data URL，然后使用动态 `import()` 加载：
+Isolate 基于微内核架构，核心逻辑由 `@opencode/plugable` 提供的插件系统驱动。
 
-```
-code: "export default x => x"
-        ↓ Base64 编码
-url: "data:application/javascript;base64,ZXhwb3J0IGRlZmF1bHQgeCA9PiB4"
-        ↓ 动态导入
-module: { default: x => x }
-```
+*   **插件管理器 (Manager)**: `src/kernel.ts` 中初始化 `Manager`，注册了默认插件链：`GuardPlugin` -> `ToolsetPlugin` -> `LoaderPlugin` -> `SandboxPlugin` -> `ChannelPlugin` -> `ClusterPlugin` -> `LoggerPlugin`。
+*   **生命周期钩子 (Hooks)**:
+    *   `onValidate` (Async): 验证请求格式、大小、超时设置。
+    *   `onLoad` (Async): 将代码转换为可执行格式（Data URL）。
+    *   `onSpawn` (Sync): 创建或获取 Worker 实例。
+    *   `onExecute` (Async): 执行代码并等待结果。
+    *   `onFormat` (Async): 格式化输出结果。
 
-### Worker 消息通信协议
+### 沙箱与注入机制 (Sandbox Implementation)
 
-**主线程 → Worker (Packet)**：
+沙箱环境的构建主要依赖于 `src/common.ts` 和 `src/worker.ts` 中的机制：
 
-```typescript
-{
-  code: string,   // 原始代码
-  input: unknown, // 输入参数
-  entry: string,  // 入口函数名
-  url: string     // Data URL
-}
-```
+*   **Bootstrap**: Worker 启动时调用 `bootstrap` 函数，将工具（Tools）和全局变量注入到 `globalThis` 作用域。
+*   **Property Injection**: 使用 `inject` 辅助函数，通过 `Object.defineProperty` 将属性定义为 `writable: false`, `configurable: false`，确保沙箱内无法修改关键全局对象。
+*   **Tool Registry**: 提供了 `registry` 和 `setup` 机制，可以在 Worker 内部按需加载工具集（如 `crypto`, `channel`）。
+*   **Code Execution**: 用户代码被转换为 Data URL 格式 (`data:application/javascript;base64,...`)，Worker内部使用动态 `import()` 加载执行，既保证了隔离性，又支持了 ES Module 特性。
 
-**Worker → 主线程 (Output)**：
+### 通信总线 (Event Bus)
 
-```typescript
-{
-  ok: boolean,
-  result?: unknown,  // 仅成功时
-  error?: Error,     // 仅失败时
-  logs: string[],
-  duration: number
-}
-```
+实现了基于 Host-Mediated Star Topology 的通信机制，详见 `src/plugins/channel.ts` 和 `src/tools/channel.ts`：
 
-### 性能计时
+*   **路由逻辑**: `ChannelPlugin` 在 Host 端监听所有 Worker 的 `message` 事件。当收到 type 为 `channel` 的消息时，它会遍历维护的 `clients` 集合。
+*   **消息广播**: 消息会被转发给除发送者以外的所有其他 Worker (`client !== worker`)，实现广播效果。
+*   **Worker API**: Worker 内部通过 `src/tools/channel.ts` 暴露简单的 `emit/on/off` 接口，底层通过 `postMessage` 与 Host 通信。
 
-使用 `performance.now()` 进行高精度计时：
+### Worker 运行时 (Worker Runtime)
 
-```typescript
-const t0 = performance.now()
-// ... 执行代码 ...
-const duration = Math.round(performance.now() - t0)
-```
+`src/worker.ts` 承载了 Worker 的主逻辑：
 
-### Worker 集群架构
-
-ClusterPlugin 实现了 Worker 复用机制：
-
-```
-┌─────────────────────────────────────────┐
-│           Cluster                       │
-├─────────────────────────────────────────┤
-│  ┌────────┐  ┌────────┐  ┌────────┐    │
-│  │Worker 1│  │Worker 2│  │Worker 3│    │
-│  │ idle   │  │ busy   │  │ idle   │    │
-│  └────────┘  └────────┘  └────────┘    │
-├─────────────────────────────────────────┤
-│  • 预创建 Worker (initialize)            │
-│  • 任务调度 (acquire/release)            │
-│  • 超时监控 (createTimer)                │
-│  • 定期清理 (cleanup)                    │
-└─────────────────────────────────────────┘
-```
-
-**优势**：
-- 减少 Worker 创建开销（~50-100ms）
-- 提高高并发场景吞吐量
-- 自动扩缩容（min → max）
-
-**适用场景**：
-- 高频执行（QPS > 10）
-- 代码执行时间较短（< 1s）
-- 服务器环境
+*   **日志捕获**: 重写 `console` 对象的方法，将日志序列化后发送回 Host。
+*   **异常处理**: 监听 `error` 和 `unhandledrejection` 事件，标准化错误信息。
+*   **安全序列化**: 使用自定义的 `safeStringify` 处理循环引用，防止 JSON 序列化崩溃。
 
 ---
 
@@ -2012,6 +2173,7 @@ apps/isolate/
 ├── README.md
 └── src/
     ├── bridge.ts      # Worker 通信
+    ├── common.ts      # 通用工具
     ├── config.ts      # 默认配置
     ├── index.ts       # 入口导出
     ├── kernel.ts      # 微内核
@@ -2019,17 +2181,18 @@ apps/isolate/
     ├── types.ts       # 类型定义
     ├── worker.ts      # Worker 执行器
     ├── plugins/
+    │   ├── channel.ts # 通信插件
+    │   ├── cluster.ts # 集群插件（复用）
     │   ├── guard.ts   # 验证插件
     │   ├── index.ts   # 插件导出
     │   ├── loader.ts  # 加载插件
     │   ├── logger.ts  # 日志插件
-    │   ├── toolset.ts # 工具集插件
     │   ├── sandbox.ts # 沙箱插件（单次执行）
-    │   └── cluster.ts # 集群插件（复用）
+    │   └── toolset.ts # 工具集插件
     └── tools/
-        ├── index.ts   # 工具导出
-        ├── types.ts   # 工具类型定义
-        └── crypto.ts  # Crypto 工具
+        ├── channel.ts # Channel 工具
+        ├── crypto.ts  # Crypto 工具
+        └── index.ts   # 工具导出
 ```
 
 ---

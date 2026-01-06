@@ -1,6 +1,8 @@
+import { inject } from '../common.ts';
 import type { Tool } from '../types.ts';
 
 const listeners = new Map<string, Set<(data: unknown) => void>>();
+let isListening = false;
 
 function dispatch(topic: string, data: unknown) {
   const handlers = listeners.get(topic);
@@ -20,12 +22,15 @@ export const channel: Tool = {
   setup: (globals) => {
     listeners.clear();
 
-    self.addEventListener('message', (event: MessageEvent) => {
-      const data = event.data;
-      if (data && typeof data === 'object' && 'type' in data && data.type === 'channel') {
-        dispatch(data.topic, data.data);
-      }
-    });
+    if (!isListening) {
+      self.addEventListener('message', (event: MessageEvent) => {
+        const data = event.data;
+        if (data && typeof data === 'object' && 'type' in data && data.type === 'channel') {
+          dispatch(data.topic, data.data);
+        }
+      });
+      isListening = true;
+    }
 
     const api = {
       emit: (topic: string, data: unknown) => {
@@ -49,6 +54,7 @@ export const channel: Tool = {
       },
     };
 
-    globals.channel = api;
+    Object.freeze(api);
+    inject(globals, 'channel', api);
   },
 };
