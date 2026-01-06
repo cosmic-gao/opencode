@@ -81,3 +81,5 @@ export const channel: Tool = {
     inject(globals, 'channel', api);
   },
 };
+
+export default channel;

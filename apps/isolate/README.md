@@ -555,6 +555,7 @@ interface Toolset {
 |------|------|----------|
 | `crypto` | Web Crypto API | `globalThis.crypto` |
 | `channel` | Worker 通信 | `globalThis.channel` |
+| `db` | PostgreSQL 数据库访问 | `globalThis.db` |
 
 **添加自定义工具**：
 
@@ -686,6 +687,207 @@ export default () => {
 }
 ```
 
+### Database 工具与 API
+
+`db` 工具提供 PostgreSQL 数据库访问能力，基于 Drizzle ORM。需要设置 `DATABASE_URL` 环境变量才会自动注入。
+
+**环境配置**:
+
+```bash
+# 设置数据库连接字符串
+export DATABASE_URL="postgresql://user:password@localhost:5432/dbname"
+```
+
+**API 签名**:
+
+```typescript
+interface Database<T extends Schema> {
+  // Drizzle ORM 查询实例
+  query: PostgresJsDatabase<T>;
+  
+  // 所有 drizzle-orm 操作符和函数
+  operators: typeof import('drizzle-orm');
+  
+  // 动态表访问（根据 schemas/ 目录中的表定义）
+  [tableName: string]: AnyPgTable;
+  
+  // 列出所有表名
+  tables: readonly string[];
+  
+  // 执行事务
+  transaction<Result>(
+    callback: (tx: PostgresJsDatabase<T>) => Promise<Result>
+  ): Promise<Result>;
+  
+  // 关闭连接
+  close(): Promise<void>;
+}
+
+declare const db: Database;
+```
+
+**Schema 定义**:
+
+在 `apps/isolate/src/schemas/` 目录下创建表定义。仓库已内置示例表 [apps/isolate/src/schemas/users.ts](apps/isolate/src/schemas/users.ts) 和 [apps/isolate/src/schemas/posts.ts](apps/isolate/src/schemas/posts.ts)，可直接通过 `db.users` 与 `db.posts` 访问：
+
+```typescript
+// schemas/users.ts
+import { pgTable, serial, text, timestamp } from 'drizzle-orm/pg-core';
+
+export const users = pgTable('users', {
+  id: serial('id').primaryKey(),
+  name: text('name').notNull(),
+  email: text('email').notNull().unique(),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+```
+
+**使用示例**:
+
+```javascript
+// 1. 查询所有用户
+export default async () => {
+  const { eq } = db.operators;
+  
+  // 查询所有
+  const allUsers = await db.query.select().from(db.users);
+  
+  // 条件查询
+  const user = await db.query
+    .select()
+    .from(db.users)
+    .where(eq(db.users.id, 1));
+  
+  return user;
+}
+```
+
+```javascript
+// 1.1 查询用户并取出最近文章
+export default async () => {
+  const { eq } = db.operators;
+
+  const rows = await db.query
+    .select({
+      id: db.users.id,
+      name: db.users.name,
+      lastPostTitle: db.posts.title,
+    })
+    .from(db.users)
+    .leftJoin(db.posts, eq(db.users.id, db.posts.userId))
+    .where(eq(db.users.id, 1))
+    .orderBy(db.posts.createdAt)
+    .limit(1);
+
+  return rows[0];
+}
+```
+
+```javascript
+// 2. 插入数据
+export default async (userData) => {
+  const result = await db.query
+    .insert(db.users)
+    .values({
+      name: userData.name,
+      email: userData.email
+    })
+    .returning();
+  
+  return result[0];
+}
+```
+
+```javascript
+// 3. 更新数据
+export default async ({ id, name }) => {
+  const { eq } = db.operators;
+  
+  const updated = await db.query
+    .update(db.users)
+    .set({ name })
+    .where(eq(db.users.id, id))
+    .returning();
+  
+  return updated[0];
+}
+```
+
+```javascript
+// 4. 删除数据
+export default async (id) => {
+  const { eq } = db.operators;
+  
+  await db.query
+    .delete(db.users)
+    .where(eq(db.users.id, id));
+  
+  return { success: true };
+}
+```
+
+```javascript
+// 5. 复杂查询（JOIN、聚合）
+export default async () => {
+  const { eq, and, sql } = db.operators;
+  
+  // 假设有 posts 表
+  const result = await db.query
+    .select({
+      userId: db.users.id,
+      userName: db.users.name,
+      postCount: sql`count(${db.posts.id})::int`
+    })
+    .from(db.users)
+    .leftJoin(db.posts, eq(db.users.id, db.posts.userId))
+    .groupBy(db.users.id)
+    .having(sql`count(${db.posts.id}) > 0`);
+  
+  return result;
+}
+```
+
+```javascript
+// 6. 使用事务
+export default async (data) => {
+  return await db.transaction(async (tx) => {
+    // 创建用户
+    const [user] = await tx
+      .insert(db.users)
+      .values({ name: data.userName, email: data.email })
+      .returning();
+    
+    // 创建相关记录
+    await tx
+      .insert(db.posts)
+      .values({ userId: user.id, title: data.postTitle });
+    
+    return user;
+  });
+}
+```
+
+**常用操作符**:
+
+```javascript
+const {
+  eq,        // 等于
+  and,       // 与
+  or,        // 或
+  like,      // 模糊匹配
+  gt,        // 大于
+  gte,       // 大于等于
+  lt,        // 小于
+  lte,       // 小于等于
+  inArray,   // IN 查询
+  notInArray, // NOT IN
+  isNull,    // NULL 检查
+  isNotNull, // NOT NULL
+  between,   // BETWEEN
+  sql        // 原始 SQL
+} = db.operators;
+```
+
 ---
 
 ## 工具系统
@@ -801,6 +1003,51 @@ export default (data) => {
     throw error
   }
 }
+```
+
+**Database 工具示例**：
+
+```typescript
+// tools/db.ts - 完整实现
+import { drizzle } from 'drizzle-orm/postgres-js';
+import postgres from 'postgres';
+import * as operators from 'drizzle-orm';
+import type { Tool } from '../types.ts';
+import { inject } from '../common.ts';
+
+export const db: Tool = {
+  name: 'db',
+  setup: async (globals: Record<string, unknown>): Promise<void> => {
+    const connection = Deno.env.get('DATABASE_URL');
+    if (!connection) {
+      return; // 无连接字符串时跳过
+    }
+
+    // 加载 schemas 目录中的表定义
+    const schemas = await loadSchemas();
+    
+    // 创建数据库实例
+    const client = postgres(connection);
+    const instance = drizzle(client, { schema: schemas });
+    
+    // 创建包装对象，提供便捷 API
+    const db = new Proxy({ 
+      query: instance,
+      operators,
+      tables: Object.keys(schemas)
+    }, {
+      get: (target, prop) => {
+        if (prop in target) return target[prop];
+        if (prop in schemas) return schemas[prop]; // 动态表访问
+        return undefined;
+      }
+    });
+    
+    // 冻结并注入全局
+    Object.freeze(db);
+    inject(globals, 'db', db);
+  }
+};
 ```
 
 ---
@@ -1642,6 +1889,29 @@ curl -X POST http://localhost:8787/execute \
   -d '{
     "code": "export default async (msg) => { const hash = await crypto.subtle.digest(\"SHA-256\", new TextEncoder().encode(msg)); return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, \"0\")).join(\"\") }",
     "input": "hello world"
+  }'
+```
+
+#### 使用数据库工具
+
+```bash
+# 需要先设置环境变量
+export DATABASE_URL="postgresql://localhost:5432/test"
+
+# 查询用户
+curl -X POST http://localhost:8787/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "export default async () => { const { eq } = db.operators; return await db.query.select().from(db.users).where(eq(db.users.id, 1)); }",
+    "input": null
+  }'
+
+# 插入数据
+curl -X POST http://localhost:8787/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "export default async (data) => { const result = await db.query.insert(db.users).values(data).returning(); return result[0]; }",
+    "input": {"name": "Alice", "email": "alice@example.com"}
   }'
 ```
 
