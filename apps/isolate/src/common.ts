@@ -113,8 +113,10 @@ export function lazy<T extends object>(
           if (typeof method === 'symbol') return undefined;
 
           return (...args: unknown[]) => {
-            return ensure().then(obj => {
-              const table = (obj as Record<string, unknown>)[prop] as Record<string, unknown> | undefined;
+            return ensure().then((obj) => {
+              const table = (obj as Record<string, unknown>)[prop] as
+                | Record<string, unknown>
+                | undefined;
               if (!table || typeof table[method as string] !== 'function') {
                 throw new Error(`Invalid operation: ${String(prop)}.${String(method)}`);
               }
@@ -210,15 +212,15 @@ export function provide(scope: Record<string, unknown>, data: Record<string, unk
   }
 }
 
-export async function bootstrap(
+export function bootstrap(
   scope: Record<string, unknown>,
   items: Tool[],
   names: string[] = [],
   globals: Record<string, unknown> = {},
-): Promise<void> {
+): void {
   const index = registry(items);
-  const initialized = new Set<string>();
   const initializing = new Set<string>();
+  const cache = new Map<string, unknown>();
 
   for (const name of names) {
     const tool = index[name];
@@ -226,51 +228,40 @@ export async function bootstrap(
 
     Object.defineProperty(scope, name, {
       get() {
-        if (initialized.has(name)) {
-          return scope[`$${name}`];
+        if (cache.has(name)) {
+          return cache.get(name);
         }
 
         if (initializing.has(name)) {
-          throw new Error(`Circular dependency detected: ${name}`);
+          throw new Error(`Circular dependency detected: ${[...initializing, name].join(' -> ')}`);
         }
 
         initializing.add(name);
 
         try {
-          const setupScope = { ...scope };
-          const result = tool.setup(setupScope);
-
-          if (result && typeof result.then === 'function') {
-            throw new Error(`Tool '${name}' cannot be async in lazy mode`);
+          const instance = tool.setup(scope) ?? undefined; // setup 返回实例
+          if (instance === undefined) {
+            throw new Error(`Tool "${name}" did not provide an instance`);
           }
 
-          const instance = setupScope[name];
-          if (instance !== undefined) {
-            scope[`$${name}`] = instance;
-            initialized.add(name);
-            return instance;
-          }
-
-          throw new Error(`Tool '${name}' setup failed`);
-        } catch (error) {
-          initialized.add(name);
-          scope[`$${name}`] = undefined;
-          throw error;
-        } finally {
+          cache.set(name, instance);
           initializing.delete(name);
+
+          return instance;
+        } catch (error) {
+          initializing.delete(name);
+          throw error; // 不缓存失败，方便重试
         }
       },
       set() {
         throw new Error(`Cannot set tool: ${name}`);
       },
       enumerable: true,
-      configurable: false,
+      configurable: true,
     });
   }
 
-  if (Object.keys(globals).length > 0) {
-    provide(scope, globals);
-  }
+  provide(scope, globals); // 直接注入 globals
 }
 
 export function bust(url: string): string {

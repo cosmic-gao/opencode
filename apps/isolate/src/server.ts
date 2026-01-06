@@ -76,5 +76,6 @@ app.get('/health', (c: HonoContext) => {
 if (import.meta.main) {
   const port = 8787
   console.log(`[isolate] Server starting on port ${port}`)
-  Deno.serve({ port }, app.fetch)
+  const server = Deno.serve({ port }, app.fetch)
+  await server.finished
 }
