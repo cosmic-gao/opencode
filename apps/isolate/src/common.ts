@@ -219,49 +219,20 @@ export function bootstrap(
   globals: Record<string, unknown> = {},
 ): void {
   const index = registry(items);
-  const initializing = new Set<string>();
-  const cache = new Map<string, unknown>();
+  const selected: Tool[] = [];
 
   for (const name of names) {
     const tool = index[name];
-    if (!tool) continue;
-
-    Object.defineProperty(scope, name, {
-      get() {
-        if (cache.has(name)) {
-          return cache.get(name);
-        }
-
-        if (initializing.has(name)) {
-          throw new Error(`Circular dependency detected: ${[...initializing, name].join(' -> ')}`);
-        }
-
-        initializing.add(name);
-
-        try {
-          const instance = tool.setup(scope) ?? undefined; // setup 返回实例
-          if (instance === undefined) {
-            throw new Error(`Tool "${name}" did not provide an instance`);
-          }
-
-          cache.set(name, instance);
-          initializing.delete(name);
-
-          return instance;
-        } catch (error) {
-          initializing.delete(name);
-          throw error; // 不缓存失败，方便重试
-        }
-      },
-      set() {
-        throw new Error(`Cannot set tool: ${name}`);
-      },
-      enumerable: true,
-      configurable: true,
-    });
+    if (tool) {
+      selected.push(tool);
+    }
   }
 
-  provide(scope, globals); // 直接注入 globals
+  install(scope, selected);
+
+  if (Object.keys(globals).length > 0) {
+    provide(scope, globals);
+  }
 }
 
 export function bust(url: string): string {
