@@ -4,7 +4,6 @@ export function spawn(permissions?: Deno.PermissionOptions): Process {
   const url = new URL('../../worker.ts', import.meta.url).href;
   const perms = permissions || 'none';
   
-  console.log(perms)
   const options = {
     type: 'module',
     deno: {

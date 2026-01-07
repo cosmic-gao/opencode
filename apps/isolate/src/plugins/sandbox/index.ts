@@ -36,6 +36,8 @@ export const SandboxPlugin: IsolatePlugin = {
     (api.onWorker as APIHook<Factory>).provide(hookedFactory);
 
     api.onExecute.tap(async (ctx) => {
+      if (ctx.output) return ctx
+      
       const { request, url, config } = ctx;
       const limit = request.timeout ?? config.timeout;
       

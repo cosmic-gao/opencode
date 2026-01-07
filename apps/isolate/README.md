@@ -168,8 +168,8 @@ curl -X POST http://localhost:8787/execute \
 curl -X POST http://localhost:8787/execute \
   -H "Content-Type: application/json" \
   -d '{
-    "code": "export default async function() { const result = await db.db.select().from(db.users).limit(10); return { total: result.length, users: result.map(u => ({ id: u.id, name: u.name })) }; }",
-    "tools": ["database"]
+    "code": "export default async function() { const users = await db.users.select().limit(10); return { total: users.length, users: users.map(u => ({ id: u.id, name: u.name })) }; }",
+    "tools": ["db"]
   }'
 ```
 
@@ -194,9 +194,9 @@ curl -X POST http://localhost:8787/execute \
 curl -X POST http://localhost:8787/execute \
   -H "Content-Type: application/json" \
   -d '{
-    "code": "export default async function(userId) { const [user] = await db.db.select().from(db.users).where(eq(db.users.id, userId)).limit(1); const sessionId = crypto.randomUUID(); channel.emit(\"user:login\", { userId, sessionId, timestamp: Date.now() }); return { user: user?.name, sessionId }; }",
+    "code": "export default async function(userId) { const users = await db.users.select().limit(1); const user = users[0]; const sessionId = crypto.randomUUID(); channel.emit(\"user:login\", { userId, sessionId, timestamp: Date.now() }); return { user: user?.name, sessionId }; }",
     "input": 123,
-    "tools": ["crypto", "channel", "database"]
+    "tools": ["crypto", "channel", "db"]
   }'
 ```
 
@@ -1971,48 +1971,22 @@ export const users = pgTable('users', {
 ```javascript
 // 1. 查询所有用户
 export default async () => {
-  const { eq } = db.operators;
-  
   // 查询所有
-  const allUsers = await db.query.select().from(db.users);
+  const allUsers = await db.users.select();
   
-  // 条件查询
-  const user = await db.query
-    .select()
-    .from(db.users)
-    .where(eq(db.users.id, 1));
+  // 条件查询（使用 Drizzle 的 where）
+  const { eq } = await import('drizzle-orm');
+  const users = await db.users.select().where(eq(db.users.id, 1));
   
-  return user;
-}
-```
-
-```javascript
-// 1.1 查询用户并取出最近文章
-export default async () => {
-  const { eq } = db.operators;
-
-  const rows = await db.query
-    .select({
-      id: db.users.id,
-      name: db.users.name,
-      lastPostTitle: db.posts.title,
-    })
-    .from(db.users)
-    .leftJoin(db.posts, eq(db.users.id, db.posts.userId))
-    .where(eq(db.users.id, 1))
-    .orderBy(db.posts.createdAt)
-    .limit(1);
-
-  return rows[0];
+  return users;
 }
 ```
 
 ```javascript
 // 2. 插入数据
 export default async (userData) => {
-  const result = await db.query
-    .insert(db.users)
-    .values({
+  const result = await db.users
+    .insert({
       name: userData.name,
       email: userData.email
     })
@@ -2025,11 +1999,10 @@ export default async (userData) => {
 ```javascript
 // 3. 更新数据
 export default async ({ id, name }) => {
-  const { eq } = db.operators;
+  const { eq } = await import('drizzle-orm');
   
-  const updated = await db.query
-    .update(db.users)
-    .set({ name })
+  const updated = await db.users
+    .update({ name })
     .where(eq(db.users.id, id))
     .returning();
   
@@ -2040,10 +2013,10 @@ export default async ({ id, name }) => {
 ```javascript
 // 4. 删除数据
 export default async (id) => {
-  const { eq } = db.operators;
+  const { eq } = await import('drizzle-orm');
   
-  await db.query
-    .delete(db.users)
+  await db.users
+    .delete()
     .where(eq(db.users.id, id));
   
   return { success: true };
@@ -2051,12 +2024,12 @@ export default async (id) => {
 ```
 
 ```javascript
-// 5. 复杂查询（JOIN、聚合）
+// 5. 复杂查询（使用原生 Drizzle client）
 export default async () => {
-  const { eq, and, sql } = db.operators;
+  const { eq, sql } = await import('drizzle-orm');
   
-  // 假设有 posts 表
-  const result = await db.query
+  // 使用 db.db 访问原生 Drizzle client
+  const result = await db.db
     .select({
       userId: db.users.id,
       userName: db.users.name,
@@ -2071,46 +2044,26 @@ export default async () => {
 }
 ```
 
-```javascript
-// 6. 使用事务
-export default async (data) => {
-  return await db.transaction(async (tx) => {
-    // 创建用户
-    const [user] = await tx
-      .insert(db.users)
-      .values({ name: data.userName, email: data.email })
-      .returning();
-    
-    // 创建相关记录
-    await tx
-      .insert(db.posts)
-      .values({ userId: user.id, title: data.postTitle });
-    
-    return user;
-  });
-}
-```
-
-**常用操作符**:
+**数据库操作符**：
 
 ```javascript
-const {
-  eq,        // 等于
-  and,       // 与
-  or,        // 或
-  like,      // 模糊匹配
-  gt,        // 大于
-  gte,       // 大于等于
-  lt,        // 小于
-  lte,       // 小于等于
-  inArray,   // IN 查询
-  notInArray, // NOT IN
-  isNull,    // NULL 检查
-  isNotNull, // NOT NULL
-  between,   // BETWEEN
-  sql        // 原始 SQL
-} = db.operators;
+// 需要从 drizzle-orm 导入操作符
+const { eq, and, or, like, gt, gte, lt, lte, inArray, sql } = await import('drizzle-orm');
+
+// 使用示例
+const users = await db.users.select().where(eq(db.users.id, 1));
+const posts = await db.posts.select().where(and(
+  eq(db.posts.userId, 1),
+  gt(db.posts.createdAt, new Date('2024-01-01'))
+));
 ```
+
+**DB 工具 API：**
+
+- `db.users` - Query 实例，提供 `select()`, `insert()`, `update()`, `delete()`
+- `db.posts` - 其他表的 Query 实例（根据 schemas/ 目录自动扫描）
+- `db.db` - 原生 Drizzle client，用于复杂查询（JOIN、聚合等）
+- `db.close()` - 关闭数据库连接
 
 ---
 
