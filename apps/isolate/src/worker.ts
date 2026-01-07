@@ -1,8 +1,33 @@
 import type { Entry, Fault, Level, Output, Packet } from './types.ts';
 import { build } from './tools/index.ts';
 import { mount, bust, fault, reset, stringify, unmount, index } from './common/index.ts';
+import { Pool } from './pool.ts';
+import type { PoolAPI } from './pool.ts';
 
 const tools = build();
+
+// Create pool instance in worker
+const pool = new Pool({
+  limit: 50,
+  options: {
+    max: 10,
+    idle_timeout: 120,
+    connect_timeout: 10,
+    max_lifetime: 3600,
+  },
+  cleanupInterval: 60_000,
+  idleTimeout: 120_000,
+});
+
+pool.init();
+
+const poolAPI: PoolAPI = {
+  get: (url: string) => pool.get(url),
+  release: (url: string) => pool.release(url),
+  stats: () => pool.stats(),
+  size: () => pool.size,
+  healthCheck: () => pool.healthCheck(),
+};
 
 function capture(level: Level) {
   return (...args: unknown[]) => {
@@ -67,6 +92,9 @@ async function run(packet: Packet): Promise<Output> {
   const selected = names.map(name => registry[name]).filter(Boolean);
 
   try {
+    // Add pool to scope for db tool
+    scope.__pool__ = poolAPI;
+    
     await mount(scope, tools, names, packet.globals);
 
     const url = bust(packet.url);

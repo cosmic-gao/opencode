@@ -4,9 +4,7 @@ import type { AnyPgTable } from 'drizzle-orm/pg-core';
 import type { Perms, Tool } from '../types.ts';
 import { inject } from '../common/index.ts';
 import { parse } from '../permissions/index.ts';
-
-// Import PoolAPI type
-import type { PoolAPI } from '../plugins/database.ts';
+import type { PoolAPI } from '../pool.ts';
 
 export interface Config {
   hosts?: string[];
@@ -130,7 +128,7 @@ class Store<T extends Schema> {
   }
 }
 
-export function db(config?: Config, pool?: PoolAPI): Tool {
+export function db(config?: Config): Tool {
   let instance: (Store<Schema> & Record<string, Query<AnyPgTable>>) | null = null;
 
   return {
@@ -146,6 +144,7 @@ export function db(config?: Config, pool?: PoolAPI): Tool {
     },
     config,
     setup: async (scope: Record<string, unknown>): Promise<void> => {
+      const pool = scope.__pool__ as PoolAPI | undefined;
       if (!pool) {
         throw new Error('PoolAPI not available. Ensure PoolPlugin is registered.');
       }
