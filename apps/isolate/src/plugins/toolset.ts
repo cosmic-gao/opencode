@@ -1,7 +1,7 @@
 import type { Context, IsolatePlugin, Toolset } from '../types.ts';
 import { type APIHook, createAPIHook } from '@opencode/plugable';
 import { build } from '../tools/index.ts';
-import { index, setup } from '../common/index.ts';
+import { index, setup, extract } from '../common/index.ts';
 
 export const ToolsetPlugin: IsolatePlugin = {
   name: 'opencode:tools',
@@ -32,23 +32,16 @@ export const ToolsetPlugin: IsolatePlugin = {
     (api.onToolset as APIHook<Toolset>).provide(factory);
 
     api.onLoad.tap((ctx: Context) => {
-      const requested = ctx.request.tools ?? [];
+      const specs = ctx.request.tools ?? [];
       const registry = factory.registry();
-
-      const valid: string[] = [];
-      for (const name of requested) {
-        if (name in registry) {
-          valid.push(name);
-        }
-      }
+      const { names, configs } = extract(specs, registry);
 
       const updated: Context = {
         ...ctx,
-        tools: valid,
+        context: { names, configs },
       };
 
       api.setContext(updated);
-
       return updated;
     });
   },

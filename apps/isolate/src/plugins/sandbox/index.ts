@@ -44,7 +44,7 @@ export const SandboxPlugin: IsolatePlugin = {
       const w = await hookedFactory.spawn(ctx.permissions);
       const task = hookedFactory.runner(w, limit);
       
-      const out = await task.run(request, url, ctx.globals, ctx.tools);
+      const out = await task.run(request, url, ctx.globals, ctx.context);
       
       api.setContext({ output: out });
       return { ...ctx, output: out };

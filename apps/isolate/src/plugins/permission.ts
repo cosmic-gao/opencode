@@ -1,6 +1,7 @@
 import type { IsolatePlugin, Context, Toolset } from '../types.ts';
 import { type APIHook, createAPIHook } from '@opencode/plugable';
 import { merge, validate, normalize, resolve } from '../permissions/index.ts';
+import { build } from '../common/builder.ts';
 
 export const PermissionPlugin: IsolatePlugin = {
   name: 'opencode:permission',
@@ -20,12 +21,16 @@ export const PermissionPlugin: IsolatePlugin = {
       
       let tool: Deno.PermissionOptions = "none";
       
-      if (toolset && Array.isArray(ctx.tools) && ctx.tools.length > 0) {
+      if (toolset && ctx.context) {
         const registry = toolset.registry();
+        const { names, configs } = ctx.context;
         
-        for (const name of ctx.tools) {
-          const item = registry[name];
-          if (!item || !item.permissions) continue;
+        for (const name of names) {
+          const item = configs.has(name) 
+            ? (build(name, configs.get(name)) ?? registry[name])
+            : registry[name];
+          
+          if (!item?.permissions) continue;
           
           const permission = typeof item.permissions === "function"
             ? item.permissions(ctx)

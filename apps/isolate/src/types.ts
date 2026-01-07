@@ -36,6 +36,11 @@ export type Fault = { name: string; message: string; stack?: string };
 
 export type Level = 'log' | 'info' | 'warn' | 'error' | 'exception';
 
+export interface ToolContext {
+  names: string[];
+  configs: Map<string, unknown>;
+}
+
 export type Entry = {
   level: Level;
   message: string;
@@ -51,13 +56,15 @@ export type Output = {
   duration: number;
 };
 
+export type ToolSpec = string | [string, unknown];
+
 export interface Request {
   readonly code: string;
   readonly input?: unknown;
   readonly entry?: string;
   readonly timeout?: number;
   readonly permissions?: Deno.PermissionOptions;
-  readonly tools?: string[];
+  readonly tools?: ToolSpec[];
 }
 
 export type Reply = Output;
@@ -68,7 +75,7 @@ export interface Packet {
   readonly entry: string;
   readonly url: string;
   readonly globals?: Record<string, unknown>;
-  readonly tools?: string[];
+  readonly context?: ToolContext;
 }
 
 export interface Config {
@@ -92,7 +99,7 @@ export interface Context {
   url: string;
   output: Output | null;
   globals?: Record<string, unknown>;
-  tools?: string[];
+  context?: ToolContext;
   permissions?: Deno.PermissionOptions;
 }
 
@@ -125,7 +132,7 @@ export interface Runner {
     request: Request,
     url: string,
     globals?: Record<string, unknown>,
-    tools?: string[],
+    context?: ToolContext
   ) => Promise<Output>;
 }
 

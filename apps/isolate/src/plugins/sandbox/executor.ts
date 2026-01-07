@@ -1,4 +1,4 @@
-import type { Process, Runner, Request, Output, Packet } from '../../types.ts';
+import type { Process, Runner, Request, Output, Packet, ToolContext } from '../../types.ts';
 import { send, wait } from '../../bridge.ts';
 import { timeout } from './timeout.ts';
 
@@ -7,7 +7,7 @@ export function executor(proc: Process, limit: number): Runner {
     request: Request,
     url: string,
     globals?: Record<string, unknown>,
-    tools?: string[]
+    context?: ToolContext
   ): Promise<Output> => {
     const start = performance.now();
     const ctrl = timeout(limit, start);
@@ -20,8 +20,8 @@ export function executor(proc: Process, limit: number): Runner {
         input: request.input as unknown,
         entry: request.entry ?? 'default',
         url,
-        tools,
         globals,
+        context,
       };
 
       send(proc.worker, msg);

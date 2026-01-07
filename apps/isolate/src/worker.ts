@@ -1,6 +1,6 @@
 import type { Entry, Fault, Level, Output, Packet } from './types.ts';
 import { build } from './tools/index.ts';
-import { mount, bust, fault, reset, stringify, unmount, index, freeze } from './common/index.ts';
+import { mount, bust, fault, reset, stringify, unmount, index, freeze, resolve } from './common/index.ts';
 import { Pool } from './pool.ts';
 import type { PoolAPI } from './pool.ts';
 
@@ -88,13 +88,12 @@ function entry(
 async function run(packet: Packet): Promise<Output> {
   const start = performance.now();
   const scope = globalThis as Record<string, unknown>;
-  const names = packet.tools || [];
+  const names = packet.context?.names || [];
   const registry = index(tools);
-  const selected = names.map(name => registry[name]).filter(Boolean);
+  const selected = resolve(names, registry, packet.context?.configs);
 
   try {
     const internal = { pool: poolAPI };
-    
     await mount(scope, tools, names, packet.globals, internal);
 
     const url = bust(packet.url);
