@@ -1,7 +1,7 @@
 import type { Tool, Registry } from '../types.ts';
 import { provide } from './inject.ts';
 
-export function registry(items: Tool[]): Registry {
+export function index(items: Tool[]): Registry {
   const result: Registry = {};
   for (const tool of items) {
     result[tool.name] = tool;
@@ -9,9 +9,9 @@ export function registry(items: Tool[]): Registry {
   return result;
 }
 
-export function setup(items: Tool[], globals: Record<string, unknown>): void {
+export function setup(items: Tool[], scope: Record<string, unknown>): void {
   for (const tool of items) {
-    tool.setup(globals);
+    tool.setup(scope);
   }
 }
 
@@ -35,17 +35,29 @@ export async function install(scope: Record<string, unknown>, tools: Tool[]): Pr
   }
 }
 
-export async function bootstrap(
+export async function unmount(scope: Record<string, unknown>, tools: Tool[]): Promise<void> {
+  for (const tool of tools) {
+    if (tool.teardown) {
+      try {
+        await tool.teardown(scope);
+      } catch (error) {
+        console.error(`Teardown failed [${tool.name}]:`, error);
+      }
+    }
+  }
+}
+
+export async function mount(
   scope: Record<string, unknown>,
   items: Tool[],
   names: string[] = [],
-  globals: Record<string, unknown> = {},
+  data: Record<string, unknown> = {},
 ): Promise<void> {
-  const index = registry(items);
+  const registry = index(items);
   const selected: Tool[] = [];
 
   for (const name of names) {
-    const tool = index[name];
+    const tool = registry[name];
     if (tool) {
       selected.push(tool);
     }
@@ -53,7 +65,7 @@ export async function bootstrap(
 
   await install(scope, selected);
 
-  if (Object.keys(globals).length > 0) {
-    provide(scope, globals);
+  if (Object.keys(data).length > 0) {
+    provide(scope, data);
   }
 }

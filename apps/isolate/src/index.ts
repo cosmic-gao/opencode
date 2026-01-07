@@ -18,7 +18,7 @@ export type {
 
 export { DEFAULT_CONFIG, config } from './config.ts'
 
-export { createIsolate, type Isolate, type IsolateConfig } from './kernel.ts'
+export { create as createIsolate, type Isolate, type IsolateConfig } from './kernel.ts'
 
 export { 
   GuardPlugin, 
@@ -30,6 +30,7 @@ export {
   LoggerPlugin,
   filter,
   ChannelPlugin,
+  DatabasePoolPlugin,
 } from './plugins/index.ts'
 
 export { send, wait } from './bridge.ts'

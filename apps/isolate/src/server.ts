@@ -1,19 +1,20 @@
 import { type Context as HonoContext, Hono } from 'hono'
 import type { Output } from './types.ts'
 import { create, type Isolate } from './kernel.ts'
+import { pool } from './pool.ts'
 
 const app = new Hono()
 
-let instance: Isolate | null = null
+let engine: Isolate | null = null
 const cache = new Map<string, { time: number; count: number }>();
 const WINDOW = 1000;
 const LIMIT = 10000;
 
-async function isolate(): Promise<Isolate> {
-  if (!instance) {
-    instance = await create()
+async function kernel(): Promise<Isolate> {
+  if (!engine) {
+    engine = await create()
   }
-  return instance
+  return engine
 }
 
 function purge(): void {
@@ -58,8 +59,8 @@ app.post('/execute', async (c: HonoContext) => {
     return c.json({ error: 'Duplicate request' }, 429);
   }
 
-  const engine = await isolate()
-  const out = (await engine.execute(body)) as Output
+  const isolate = await kernel()
+  const out = (await isolate.execute(body)) as Output
   
   const large = out.logs?.some(
     log => log.level === 'exception' && log.name === 'PayloadTooLarge'
@@ -76,6 +77,19 @@ app.get('/health', (c: HonoContext) => {
 if (import.meta.main) {
   const port = 8787
   console.log(`[isolate] Server starting on port ${port}`)
+  
   const server = Deno.serve({ port }, app.fetch)
+  
+  const shutdown = async () => {
+    console.log('[isolate] Shutdown...')
+    await pool.dispose()
+    console.log('[isolate] Pool closed')
+  }
+  
+  const exit = () => shutdown().then(() => Deno.exit(0))
+  
+  Deno.addSignalListener('SIGINT', exit)
+  Deno.addSignalListener('SIGTERM', exit)
+  
   await server.finished
 }

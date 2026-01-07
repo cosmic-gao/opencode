@@ -1,12 +1,13 @@
 import type { Context, IsolatePlugin, Toolset } from '../types.ts';
 import { type APIHook, createAPIHook } from '@opencode/plugable';
+import type { DatabasePoolAPI } from './database.ts';
 import { build } from '../tools/index.ts';
-import { registry, setup } from '../common/index.ts';
+import { index, setup } from '../common/index.ts';
 
 export const ToolsetPlugin: IsolatePlugin = {
   name: 'opencode:tools',
   pre: ['opencode:guard'],
-  post: ['opencode:loader'],
+  post: ['opencode:loader', 'opencode:database'],
   required: ['opencode:guard'],
   usePlugins: [],
   registryHook: {
@@ -19,8 +20,20 @@ export const ToolsetPlugin: IsolatePlugin = {
     }
     
     const { config } = api.context();
-    const tools = build(config);
-    const defaults = registry(tools);
+
+    // Try to get database pool API if available
+    let poolAPI: DatabasePoolAPI | undefined;
+    try {
+      if (api.onDatabasePool) {
+        poolAPI = (api.onDatabasePool as APIHook<DatabasePoolAPI>).use();
+      }
+    } catch {
+      // Database pool not available, that's OK
+      console.log('[ToolsetPlugin] Database pool not available, db tool will not function');
+    }
+
+    const tools = build(config, poolAPI);
+    const defaults = index(tools);
 
     const factory: Toolset = {
       tools: () => tools,

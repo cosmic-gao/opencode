@@ -13,6 +13,7 @@ export type Perms = "none" | {
 export interface Tool {
   name: string;
   setup: (globals: Record<string, unknown>) => void | Promise<void>;
+  teardown?: (globals: Record<string, unknown>) => void | Promise<void>;
   permissions?: Perms | ((ctx: Context) => Perms);
   config?: unknown;
 }

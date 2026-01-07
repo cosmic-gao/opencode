@@ -1,6 +1,6 @@
 import type { Entry, Fault, Level, Output, Packet } from './types.ts';
 import { build } from './tools/index.ts';
-import { bootstrap, bust, fault, reset, stringify } from './common/index.ts';
+import { mount, bust, fault, reset, stringify, unmount, index } from './common/index.ts';
 
 const tools = build();
 
@@ -63,9 +63,11 @@ async function run(packet: Packet): Promise<Output> {
   const start = performance.now();
   const scope = globalThis as Record<string, unknown>;
   const names = packet.tools || [];
+  const registry = index(tools);
+  const selected = names.map(name => registry[name]).filter(Boolean);
 
   try {
-    await bootstrap(scope, tools, names, packet.globals);
+    await mount(scope, tools, names, packet.globals);
 
     const url = bust(packet.url);
     const mod = await import(url);
@@ -95,6 +97,7 @@ async function run(packet: Packet): Promise<Output> {
       duration: Math.round(performance.now() - start),
     };
   } finally {
+    await unmount(scope, selected);
     reset(scope, names);
   }
 }
