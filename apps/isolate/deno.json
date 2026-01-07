@@ -4,7 +4,7 @@
     "worker-options"
   ],
   "tasks": {
-    "dev": "deno run --allow-net --allow-env --allow-read=./src,.env --env-file=.env --watch src/server.ts"
+    "dev": "deno run --no-prompt --allow-net --allow-write --allow-read --allow-env --env-file=.env --watch src/server.ts"
   },
   "imports": {
     "nanoid": "npm:nanoid@5.1.6",
@@ -17,8 +17,7 @@
   "compilerOptions": {
     "lib": [
       "deno.ns",
-      "deno.worker",
-      "esnext"
+      "deno.worker"
     ],
     "strict": true
   },

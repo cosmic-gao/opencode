@@ -4,9 +4,10 @@ import { mount, bust, fault, reset, stringify, unmount, index } from './common/i
 import { Pool } from './pool.ts';
 import type { PoolAPI } from './pool.ts';
 
+self.postMessage({ type: 'log', data: { level: 'info', message: '[worker] Worker script loaded', timestamp: Date.now() } });
+
 const tools = build();
 
-// Create pool instance in worker
 const pool = new Pool({
   limit: 50,
   options: {

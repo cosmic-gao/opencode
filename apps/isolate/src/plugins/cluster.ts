@@ -32,19 +32,21 @@ class Cluster {
     }
   }
 
-  init(spawn: (permissions?: Deno.PermissionOptions) => Process) {
+  async init(spawn: (permissions?: Deno.PermissionOptions) => Process | Promise<Process>) {
     const needed = Math.max(0, this.config.min - this.pool.length)
+    const tasks = []
     for (let i = 0; i < needed; i++) {
-      this.spawn(spawn)
+      tasks.push(this.spawn(spawn))
     }
+    await Promise.all(tasks)
     this.schedule()
   }
 
-  private spawn(create: (permissions?: Deno.PermissionOptions) => Process): PoolWorker | null {
+  private async spawn(create: (permissions?: Deno.PermissionOptions) => Process | Promise<Process>): Promise<PoolWorker | null> {
     if (this.pool.length >= this.config.max) {
       return null;
     }
-    const handle = create()
+    const handle = await create()
     const now = Date.now()
     const worker: PoolWorker = {
       id: nanoid(32),
@@ -114,23 +116,23 @@ class Cluster {
     return this.pool.find((w) => !w.busy && w.health === 'ok') ?? null
   }
 
-  private acquire(spawn: (permissions?: Deno.PermissionOptions) => Process): PoolWorker | null {
+  private async acquire(spawn: (permissions?: Deno.PermissionOptions) => Process | Promise<Process>): Promise<PoolWorker | null> {
     const idle = this.find()
     if (idle) return idle
 
     if (this.pool.length < this.config.max) {
-      const worker = this.spawn(spawn);
+      const worker = await this.spawn(spawn);
       return worker;
     }
 
     return null
   }
 
-  async warmup(spawn: (permissions?: Deno.PermissionOptions) => Process, count: number): Promise<void> {
+  async warmup(spawn: (permissions?: Deno.PermissionOptions) => Process | Promise<Process>, count: number): Promise<void> {
     const needed = Math.min(count, this.config.max - this.pool.length);
     const tasks = []
     for (let i = 0; i < needed; i++) {
-      tasks.push(Promise.resolve().then(() => this.spawn(spawn)))
+      tasks.push(this.spawn(spawn))
     }
     await Promise.all(tasks)
   }
@@ -150,7 +152,7 @@ class Cluster {
   }
 
   async run(
-    spawn: (permissions?: Deno.PermissionOptions) => Process,
+    spawn: (permissions?: Deno.PermissionOptions) => Process | Promise<Process>,
     runner: (proc: Process, timeout: number) => Runner,
     request: Request,
     url: string,
@@ -159,7 +161,7 @@ class Cluster {
     tools?: string[],
     permissions?: Deno.PermissionOptions
   ): Promise<Output> {
-    const worker = this.acquire(() => spawn(permissions))
+    const worker = await this.acquire(() => spawn(permissions))
     
     if (!worker) {
       return {
@@ -243,7 +245,7 @@ export const ClusterPlugin: IsolatePlugin = {
 
     const cluster = new Cluster({ min: 2, max: 8, idle: 120_000 })
     await cluster.warmup(factory.spawn, 2)
-    cluster.init(factory.spawn)
+    await cluster.init(factory.spawn)
 
     api.onExecute.tap(async (ctx) => {
       const { request, url, config } = ctx

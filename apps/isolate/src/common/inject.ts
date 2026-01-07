@@ -68,6 +68,7 @@ export function provide(scope: Record<string, unknown>, data: Record<string, unk
     if (typeof key !== 'string' || key.includes('.')) {
       throw new Error('Invalid key');
     }
+    
     inject(scope, key, value);
   }
 }

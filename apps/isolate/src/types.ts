@@ -1,12 +1,12 @@
 import type { AnyHook, AsyncHook, Hooks, Plugin, SyncHook } from '@opencode/plugable';
 
 export type Perms = "none" | {
-  env?: string[];
-  net?: string[];
-  read?: string[];
-  write?: string[];
-  run?: string[];
-  ffi?: string[];
+  env?: boolean | string[];
+  net?: boolean | string[];
+  read?: boolean | string[];
+  write?: boolean | string[];
+  run?: boolean | string[];
+  ffi?: boolean | string[];
   hrtime?: boolean;
 };
 
@@ -120,7 +120,7 @@ export interface Runner {
 }
 
 export interface Factory {
-  spawn: (permissions?: Deno.PermissionOptions) => Process;
+  spawn: (permissions?: Deno.PermissionOptions) => Process | Promise<Process>;
   runner: (proc: Process, timeout: number) => Runner;
 }
 

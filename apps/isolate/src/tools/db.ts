@@ -3,7 +3,6 @@ import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { AnyPgTable } from 'drizzle-orm/pg-core';
 import type { Perms, Tool } from '../types.ts';
 import { inject } from '../common/index.ts';
-import { parse } from '../permissions/index.ts';
 import type { PoolAPI } from '../pool.ts';
 
 export interface Config {
@@ -40,7 +39,13 @@ export async function scan(): Promise<Schema> {
       }
     }
   } catch (error) {
-    console.warn('Schema load failed:', error);
+    console.error('Schema scan error:', {
+      error,
+      location: location.href,
+      pathname: location.pathname,
+      dir: DIR,
+      metaUrl: import.meta.url,
+    });
   }
 
   return schemas;
@@ -76,7 +81,10 @@ function wrapTables<T extends Schema>(
   const wrapped: Record<string, Query<AnyPgTable>> = {};
 
   for (const [name, table] of Object.entries(schemas)) {
-    wrapped[name] = new Query(client as unknown as PostgresJsDatabase<Record<string, never>>, table);
+    wrapped[name] = new Query(
+      client as unknown as PostgresJsDatabase<Record<string, never>>,
+      table,
+    );
   }
 
   return wrapped;
@@ -112,7 +120,10 @@ class Store<T extends Schema> {
     this.pool.release(this.url);
   }
 
-  static async create(url: string, pool: PoolAPI): Promise<Store<Schema> & Record<string, Query<AnyPgTable>>> {
+  static async create(
+    url: string,
+    pool: PoolAPI,
+  ): Promise<Store<Schema> & Record<string, Query<AnyPgTable>>> {
     const schemas = await scan();
 
     if (!url) {
@@ -134,12 +145,14 @@ export function db(config?: Config): Tool {
   return {
     name: 'db',
     permissions: (): Perms => {
-      const url = Deno.env.get('DATABASE_URL') || '';
-      const host = parse(url);
       const extra = config?.hosts || [];
+      const hosts = ['localhost', '127.0.0.1', '0.0.0.0'];
+      
+  
       return {
-        env: ['DATABASE_URL'],
-        net: [host, ...extra],
+        env: true,
+        net: [...hosts, ...extra],
+        read: true,
       };
     },
     config,
@@ -149,7 +162,7 @@ export function db(config?: Config): Tool {
         throw new Error('PoolAPI not available. Ensure PoolPlugin is registered.');
       }
 
-      const url = Deno.env.get('DATABASE_URL');
+      const url = scope.DATABASE_URL as string | undefined;
       if (!url) {
         throw new Error('DATABASE_URL environment variable is required');
       }

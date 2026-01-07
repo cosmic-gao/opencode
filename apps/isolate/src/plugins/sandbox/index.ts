@@ -25,8 +25,8 @@ export const SandboxPlugin: IsolatePlugin = {
     }
 
     const hookedFactory: Factory = {
-      spawn: (permissions?: Deno.PermissionOptions) => {
-        const proc = factory.spawn(permissions);
+      spawn: async (permissions?: Deno.PermissionOptions) => {
+        const proc = await factory.spawn(permissions);
         api.onSpawn.call(proc);
         return proc;
       },
@@ -39,7 +39,7 @@ export const SandboxPlugin: IsolatePlugin = {
       const { request, url, config } = ctx;
       const limit = request.timeout ?? config.timeout;
       
-      const w = hookedFactory.spawn(ctx.permissions);
+      const w = await hookedFactory.spawn(ctx.permissions);
       const task = hookedFactory.runner(w, limit);
       
       const out = await task.run(request, url, ctx.globals, ctx.tools);

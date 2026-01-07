@@ -63,9 +63,9 @@ export async function mount(
     }
   }
 
-  await install(scope, selected);
-
   if (Object.keys(data).length > 0) {
     provide(scope, data);
   }
+
+  await install(scope, selected);
 }
