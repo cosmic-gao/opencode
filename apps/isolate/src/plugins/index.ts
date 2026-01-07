@@ -6,5 +6,5 @@ export { ClusterPlugin } from './cluster.ts'
 export { LoggerPlugin, filter } from './logger.ts'
 export { ToolsetPlugin } from './toolset.ts'
 export { ChannelPlugin } from './channel.ts'
-export { DatabasePoolPlugin } from './database.ts'
+export { PoolPlugin } from './database.ts'
 

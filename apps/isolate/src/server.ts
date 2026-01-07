@@ -1,7 +1,6 @@
 import { type Context as HonoContext, Hono } from 'hono'
 import type { Output } from './types.ts'
 import { create, type Isolate } from './kernel.ts'
-import { pool } from './pool.ts'
 
 const app = new Hono()
 
@@ -80,13 +79,18 @@ if (import.meta.main) {
   
   const server = Deno.serve({ port }, app.fetch)
   
-  const shutdown = async () => {
+  const shutdown = () => {
     console.log('[isolate] Shutdown...')
-    await pool.dispose()
-    console.log('[isolate] Pool closed')
+    // Cleanup is handled by plugin lifecycle
+    if (engine) {
+      console.log('[isolate] Kernel disposed')
+    }
   }
   
-  const exit = () => shutdown().then(() => Deno.exit(0))
+  const exit = () => {
+    shutdown()
+    Deno.exit(0)
+  }
   
   Deno.addSignalListener('SIGINT', exit)
   Deno.addSignalListener('SIGTERM', exit)

@@ -5,8 +5,8 @@ import type { Perms, Tool } from '../types.ts';
 import { inject } from '../common/index.ts';
 import { parse } from '../permissions/index.ts';
 
-// Import DatabasePoolAPI type
-import type { DatabasePoolAPI } from '../plugins/database.ts';
+// Import PoolAPI type
+import type { PoolAPI } from '../plugins/database.ts';
 
 export interface Config {
   hosts?: string[];
@@ -67,18 +67,18 @@ class Store<T extends Schema> {
     private client: Client<T>,
     private schemas: T,
     private url: string,
-    private pool: DatabasePoolAPI,
+    private pool: PoolAPI,
   ) {}
 
   get db(): Client<T> {
     return this.client;
   }
 
-  async close(): Promise<void> {
-    await this.pool.release(this.url);
+  close(): void {
+    this.pool.release(this.url);
   }
 
-  static async create(url: string, pool: DatabasePoolAPI): Promise<Store<Schema> & Schema> {
+  static async create(url: string, pool: PoolAPI): Promise<Store<Schema> & Schema> {
     const schemas = await scan();
 
     if (!url) {
@@ -93,7 +93,7 @@ class Store<T extends Schema> {
   }
 }
 
-export function db(config?: Config, poolAPI?: DatabasePoolAPI): Tool {
+export function db(config?: Config, poolAPI?: PoolAPI): Tool {
   let instance: (Store<Schema> & Schema) | null = null;
 
   return {
@@ -110,7 +110,7 @@ export function db(config?: Config, poolAPI?: DatabasePoolAPI): Tool {
     config,
     setup: async (scope: Record<string, unknown>): Promise<void> => {
       if (!poolAPI) {
-        throw new Error('DatabasePoolAPI not available. Ensure DatabasePoolPlugin is registered.');
+        throw new Error('PoolAPI not available. Ensure PoolPlugin is registered.');
       }
 
       const url = Deno.env.get('DATABASE_URL');
@@ -121,9 +121,9 @@ export function db(config?: Config, poolAPI?: DatabasePoolAPI): Tool {
       instance = await Store.create(url, poolAPI);
       inject(scope, 'db', instance);
     },
-    teardown: async (): Promise<void> => {
+    teardown: (): void => {
       if (instance) {
-        await instance.close();
+        instance.close();
         instance = null;
       }
     },

@@ -3,14 +3,14 @@ import type { APIHook } from '@opencode/plugable';
 import { createAPIHook } from '@opencode/plugable';
 import postgres from 'postgres';
 
-interface PoolEntry {
+interface Entry {
   client: postgres.Sql;
   refs: number;
   used: number;
   health: 'ok' | 'suspected' | 'dead';
 }
 
-interface PoolConfig {
+interface Config {
   limit?: number;
   options?: postgres.Options<Record<string, never>>;
   cleanupInterval?: number;
@@ -28,7 +28,7 @@ function mask(url: string): string {
   return url.replace(/:\/\/([^:]+):([^@]+)@/, '://$1:***@');
 }
 
-function oldest(entries: Map<string, PoolEntry>): string | null {
+function oldest(entries: Map<string, Entry>): string | null {
   let target: string | null = null;
   let time = Infinity;
 
@@ -42,15 +42,15 @@ function oldest(entries: Map<string, PoolEntry>): string | null {
   return target;
 }
 
-class DatabasePool {
-  private entries = new Map<string, PoolEntry>();
+class Pool {
+  private entries = new Map<string, Entry>();
   private limit: number;
   private options: postgres.Options<Record<string, never>>;
   private cleanupTimer?: number;
   private cleanupInterval: number;
   private idleTimeout: number;
 
-  constructor(config: PoolConfig = {}) {
+  constructor(config: Config = {}) {
     this.limit = config.limit || 50;
     this.options = config.options || DEFAULT_OPTIONS;
     this.cleanupInterval = config.cleanupInterval || 60_000; // 60s
@@ -91,7 +91,7 @@ class DatabasePool {
     return entry.client;
   }
 
-  async release(url: string): Promise<void> {
+  release(url: string): void {
     const entry = this.entries.get(url);
     if (!entry) return;
 
@@ -105,7 +105,7 @@ class DatabasePool {
     if (target) {
       this.close(target);
     } else {
-      console.warn('[DatabasePool] All entries busy, cannot evict');
+      console.warn('[Pool] All entries busy, cannot evict');
     }
   }
 
@@ -116,7 +116,7 @@ class DatabasePool {
     try {
       await entry.client.end();
     } catch (error) {
-      console.error(`[DatabasePool] Close failed for ${mask(url)}:`, error);
+      console.error(`[Pool] Close failed for ${mask(url)}:`, error);
     }
 
     this.entries.delete(url);
@@ -137,7 +137,7 @@ class DatabasePool {
     }
 
     if (toClose.length > 0) {
-      console.log(`[DatabasePool] Cleaned up ${toClose.length} idle connections`);
+      console.log(`[Pool] Cleaned up ${toClose.length} idle connections`);
     }
   }
 
@@ -152,7 +152,7 @@ class DatabasePool {
     for (const [url, entry] of this.entries) {
       tasks.push(
         entry.client.end().catch((error) => {
-          console.error(`[DatabasePool] Dispose failed for ${mask(url)}:`, error);
+          console.error(`[Pool] Dispose failed for ${mask(url)}:`, error);
         })
       );
     }
@@ -183,7 +183,7 @@ class DatabasePool {
     const now = Date.now();
     const suspectThreshold = 300_000; // 5 minutes
 
-    for (const [url, entry] of this.entries) {
+    for (const [_url, entry] of this.entries) {
       if (entry.refs === 0 && now - entry.used > suspectThreshold) {
         entry.health = 'suspected';
       }
@@ -191,33 +191,33 @@ class DatabasePool {
   }
 }
 
-export interface DatabasePoolAPI {
+export interface PoolAPI {
   get: (url: string) => postgres.Sql;
-  release: (url: string) => Promise<void>;
+  release: (url: string) => void;
   stats: () => Record<string, { refs: number; used: number; health: string }>;
   size: () => number;
   healthCheck: () => void;
 }
 
-export const DatabasePoolPlugin: IsolatePlugin = {
-  name: 'opencode:database',
+export const PoolPlugin: IsolatePlugin = {
+  name: 'opencode:pool',
   pre: [],
   post: [],
   required: [],
   usePlugins: [],
   registryHook: {
-    onDatabasePool: createAPIHook<DatabasePoolAPI>(),
+    onPool: createAPIHook<PoolAPI>(),
   },
 
   setup(api) {
-    if (!api.onDatabasePool) {
-      throw new Error('onDatabasePool not registered');
+    if (!api.onPool) {
+      throw new Error('onPool not registered');
     }
 
     const { config } = api.context();
 
     // Create pool with configuration
-    const pool = new DatabasePool({
+    const pool = new Pool({
       limit: 50,
       options: {
         max: 10,
@@ -233,7 +233,7 @@ export const DatabasePoolPlugin: IsolatePlugin = {
     pool.init();
 
     // Provide API
-    const poolAPI: DatabasePoolAPI = {
+    const poolAPI: PoolAPI = {
       get: (url: string) => pool.get(url),
       release: (url: string) => pool.release(url),
       stats: () => pool.stats(),
@@ -241,7 +241,7 @@ export const DatabasePoolPlugin: IsolatePlugin = {
       healthCheck: () => pool.healthCheck(),
     };
 
-    (api.onDatabasePool as APIHook<DatabasePoolAPI>).provide(poolAPI);
+    (api.onPool as APIHook<PoolAPI>).provide(poolAPI);
 
     // Health check on format (for monitoring)
     api.onFormat.tap((output) => {
@@ -249,7 +249,7 @@ export const DatabasePoolPlugin: IsolatePlugin = {
 
       if (config.audit) {
         const stats = pool.stats();
-        console.log('[DatabasePool] Stats:', {
+        console.log('[Pool] Stats:', {
           size: pool.size,
           connections: stats,
         });
