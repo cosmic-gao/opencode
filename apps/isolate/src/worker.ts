@@ -1,6 +1,8 @@
 import type { Entry, Fault, Level, Output, Packet } from './types.ts';
-import { tools } from './tools/index.ts';
-import { bootstrap, bust, fault, reset, stringify } from './common.ts';
+import { build } from './tools/index.ts';
+import { bootstrap, bust, fault, reset, stringify } from './common/index.ts';
+
+const tools = build();
 
 function capture(level: Level) {
   return (...args: unknown[]) => {

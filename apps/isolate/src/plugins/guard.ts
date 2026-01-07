@@ -1,11 +1,5 @@
 import type { IsolatePlugin, Request } from '../types.ts'
 
-function ensure(value: unknown, type: string, name: string): void {
-  if (typeof value !== type) {
-    throw new Error(`Invalid request: ${name} must be ${type}`);
-  }
-}
-
 function check(code: string, max: number): void {
   if (code.length > max) {
     const e = new Error('Code size exceeds limit');
@@ -21,15 +15,24 @@ export function validate(x: unknown, max: number, timeout: number): Request {
 
   const o = x as Record<string, unknown>
   const code = o.code
+  
+  if (typeof code !== 'string') {
+    throw new Error('Invalid request: code must be string');
+  }
 
-  ensure(code, 'string', 'code');
-  check(code as string, max);
+  check(code, max);
 
   const input = o.input as unknown
   const entry = typeof o.entry === 'string' ? o.entry : 'default'
   const limit = typeof o.timeout === 'number' ? o.timeout : timeout
+  
+  const tools = Array.isArray(o.tools)
+    ? (o.tools as unknown[]).filter(t => typeof t === 'string') as string[]
+    : undefined
+  
+  const permissions = o.permissions as Deno.PermissionOptions | undefined
 
-  return { code: code as string, input, entry, timeout: limit }
+  return { code, input, entry, timeout: limit, tools, permissions }
 }
 
 export const GuardPlugin: IsolatePlugin = {

@@ -1,19 +1,6 @@
 import type { IsolatePlugin, Context, Toolset } from '../types.ts';
 import { type APIHook, createAPIHook } from '@opencode/plugable';
-import { merge } from '../common.ts';
-
-const DEFAULT: Deno.PermissionOptions = "none";
-
-function normalize(permission?: Deno.PermissionOptions): Deno.PermissionOptions {
-  if (!permission) return DEFAULT;
-  
-  if (permission === "inherit") {
-    console.warn('[Permission] inherit rejected, using none');
-    return DEFAULT;
-  }
-  
-  return permission;
-}
+import { merge, validate, normalize } from '../permissions/index.ts';
 
 export const PermissionPlugin: IsolatePlugin = {
   name: 'opencode:permission',
@@ -44,7 +31,7 @@ export const PermissionPlugin: IsolatePlugin = {
             ? item.permissions(ctx)
             : item.permissions;
           
-          tool = merge(tool, permission);
+          tool = merge(tool, permission as Deno.PermissionOptions);
         }
       }
       
@@ -54,6 +41,8 @@ export const PermissionPlugin: IsolatePlugin = {
       } else {
         final = merge(request, tool);
       }
+      
+      validate(final, ctx.config.strict || false);
       
       const permissions = normalize(final);
       

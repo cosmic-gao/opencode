@@ -1,5 +1,9 @@
-import type { CryptoToolConfig, Tool } from '../types.ts';
-import { inject, proxy } from '../common.ts';
+import type { CryptoToolConfig, Tool, Perms } from '../types.ts';
+import { inject, proxy } from '../common/index.ts';
+
+export interface CryptoConfig extends CryptoToolConfig {
+  permissions?: Perms;
+}
 
 function validator(config: CryptoToolConfig | undefined) {
   let count = 0;
@@ -20,10 +24,11 @@ function validator(config: CryptoToolConfig | undefined) {
   };
 }
 
-export function crypto(config?: CryptoToolConfig): Tool {
+export function crypto(config?: CryptoConfig): Tool {
   return {
     name: 'crypto',
-    permissions: "none",
+    permissions: config?.permissions || "none",
+    config,
     setup: (globals) => {
       if (typeof self.crypto === 'undefined') return;
 

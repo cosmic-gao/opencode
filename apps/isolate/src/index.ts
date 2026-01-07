@@ -16,7 +16,7 @@ export type {
   Level,
 } from './types.ts'
 
-export { DEFAULT_CONFIG, merge } from './config.ts'
+export { DEFAULT_CONFIG, config } from './config.ts'
 
 export { createIsolate, type Isolate, type IsolateConfig } from './kernel.ts'
 
@@ -34,4 +34,5 @@ export {
 
 export { send, wait } from './bridge.ts'
 
-export * from './common.ts'
+export * from './common/index.ts'
+export * from './permissions/index.ts'

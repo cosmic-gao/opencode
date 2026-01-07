@@ -6,6 +6,6 @@ export const DEFAULT_CONFIG: Config = {
   port: 8787,
 }
 
-export function merge(partial?: Partial<Config>): Config {
+export function config(partial?: Partial<Config>): Config {
   return { ...DEFAULT_CONFIG, ...partial }
 }

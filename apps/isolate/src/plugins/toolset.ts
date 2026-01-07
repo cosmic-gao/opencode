@@ -1,15 +1,7 @@
 import type { Context, IsolatePlugin, Toolset } from '../types.ts';
 import { type APIHook, createAPIHook } from '@opencode/plugable';
-import { tools } from '../tools/index.ts';
-import { registry, setup } from '../common.ts';
-
-const defaults = registry(tools);
-
-const factory: Toolset = {
-  tools: () => tools,
-  registry: () => defaults,
-  setup,
-};
+import { build } from '../tools/index.ts';
+import { registry, setup } from '../common/index.ts';
 
 export const ToolsetPlugin: IsolatePlugin = {
   name: 'opencode:tools',
@@ -25,6 +17,16 @@ export const ToolsetPlugin: IsolatePlugin = {
     if (!api.onToolset) {
       throw new Error('onToolset not registered');
     }
+    
+    const { config } = api.context();
+    const tools = build(config);
+    const defaults = registry(tools);
+
+    const factory: Toolset = {
+      tools: () => tools,
+      registry: () => defaults,
+      setup,
+    };
 
     (api.onToolset as APIHook<Toolset>).provide(factory);
 

@@ -2,8 +2,13 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import type { AnyPgTable } from 'drizzle-orm/pg-core';
-import type { Tool } from '../types.ts';
-import { inject, lazy } from '../common.ts';
+import type { Tool, Perms } from '../types.ts';
+import { inject, lazy } from '../common/index.ts';
+import { parse } from '../permissions/index.ts';
+
+export interface DbConfig {
+  hosts?: string[];
+}
 
 type Schema = Record<string, AnyPgTable>;
 type Instance<T extends Schema> = PostgresJsDatabase<T>;
@@ -81,16 +86,24 @@ class Database<T extends Schema> {
   }
 }
 
-export const db: Tool = {
-  name: 'database',
-  permissions: {
-    env: ["DATABASE_URL"],
-    net: ["*"],
-  },
-  setup(globals: Record<string, unknown>): void {
-    const api = lazy(() => Database.create());
-    inject(globals, 'db', api);
-  },
-};
+export function db(config?: DbConfig): Tool {
+  return {
+    name: 'database',
+    permissions: (): Perms => {
+      const url = Deno.env.get('DATABASE_URL') || '';
+      const host = parse(url);
+      const extra = config?.hosts || [];
+      return {
+        env: ["DATABASE_URL"],
+        net: [host, ...extra],
+      };
+    },
+    config,
+    setup(globals: Record<string, unknown>): void {
+      const api = lazy(() => Database.create());
+      inject(globals, 'db', api);
+    },
+  };
+}
 
-export default db;
+export default db();

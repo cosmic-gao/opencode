@@ -1,9 +1,20 @@
 import type { AnyHook, AsyncHook, Hooks, Plugin, SyncHook } from '@opencode/plugable';
 
+export type Perms = "none" | {
+  env?: string[];
+  net?: string[];
+  read?: string[];
+  write?: string[];
+  run?: string[];
+  ffi?: string[];
+  hrtime?: boolean;
+};
+
 export interface Tool {
   name: string;
   setup: (globals: Record<string, unknown>) => void | Promise<void>;
-  permissions?: Deno.PermissionOptions | ((ctx: Context) => Deno.PermissionOptions);
+  permissions?: Perms | ((ctx: Context) => Perms);
+  config?: unknown;
 }
 
 export interface Registry {
@@ -54,6 +65,8 @@ export interface Config {
   readonly timeout: number;
   readonly port: number;
   readonly crypto?: CryptoToolConfig;
+  readonly strict?: boolean;
+  readonly audit?: boolean;
 }
 
 export interface CryptoToolConfig {

@@ -1,4 +1,4 @@
-import { inject } from '../common.ts';
+import { inject } from '../common/index.ts';
 import type { Tool } from '../types.ts';
 
 const listeners = new Map<string, Set<(data: unknown) => void>>();

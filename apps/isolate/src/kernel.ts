@@ -74,6 +74,15 @@ export async function create(options: IsolateConfig = {}): Promise<Isolate> {
       let ctx = manager.getContext()
       ctx = await pipe.onLoad.call(ctx)
       ctx = await pipe.onExecute.call(ctx)
+      
+      if (config.audit) {
+        console.log('[Audit]', {
+          tools: ctx.tools,
+          permissions: ctx.permissions,
+          duration: ctx.output?.duration,
+        })
+      }
+      
       if (ctx.output) {
         return await pipe.onFormat.call(ctx.output)
       }
