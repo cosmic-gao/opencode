@@ -663,16 +663,23 @@ interface IsolateHooks {
 
 ### 插件示例
 
-**自定义插件**：
+#### 1. 基础自定义插件
+
 ```typescript
 import type { IsolatePlugin } from './types.ts'
 
 export const CustomPlugin: IsolatePlugin = {
-  name: 'custom',
-  required: ['guard'],
+  name: 'custom:validator',
+  required: ['opencode:guard'],
   setup(api) {
     api.onValidate.tap(async (request) => {
+      // 自定义验证逻辑
       console.log('Validating:', request.code.length)
+      
+      if (request.code.includes('eval(')) {
+        throw new Error('eval() is not allowed');
+      }
+      
       return request
     })
   }
@@ -682,6 +689,270 @@ export const CustomPlugin: IsolatePlugin = {
 const isolate = await create({
   plugins: [CustomPlugin]
 })
+```
+
+#### 2. 性能监控插件
+
+```typescript
+import type { IsolatePlugin, Context } from './types.ts'
+
+export const PerformancePlugin: IsolatePlugin = {
+  name: 'custom:performance',
+  required: ['opencode:guard'],
+  setup(api) {
+    const metrics = new Map<string, number>();
+    
+    // 记录开始时间
+    api.onValidate.tap((request) => {
+      const id = crypto.randomUUID();
+      metrics.set(id, Date.now());
+      (request as any).__perfId = id;
+      return request;
+    });
+    
+    // 记录执行时间
+    api.onFormat.tap((output) => {
+      const id = (output as any).__perfId;
+      if (id && metrics.has(id)) {
+        const start = metrics.get(id)!;
+        const duration = Date.now() - start;
+        
+        console.log(`[Performance] Execution took ${duration}ms`);
+        metrics.delete(id);
+        
+        return {
+          ...output,
+          metrics: { duration }
+        };
+      }
+      return output;
+    });
+  }
+};
+```
+
+#### 3. 安全审计插件
+
+```typescript
+import type { IsolatePlugin } from './types.ts'
+
+export const AuditPlugin: IsolatePlugin = {
+  name: 'custom:audit',
+  required: ['opencode:guard', 'opencode:permission'],
+  setup(api) {
+    const auditLog: Array<{
+      timestamp: number;
+      code: string;
+      tools: string[];
+      permissions: unknown;
+      result: 'success' | 'error';
+    }> = [];
+    
+    api.onValidate.tap((request) => {
+      // 记录请求
+      console.log('[Audit] New execution request', {
+        codeLength: request.code.length,
+        tools: request.tools,
+        timestamp: Date.now()
+      });
+      return request;
+    });
+    
+    api.onFormat.tap((output) => {
+      // 记录结果
+      auditLog.push({
+        timestamp: Date.now(),
+        code: output.ok ? 'executed' : 'failed',
+        tools: [],
+        permissions: {},
+        result: output.ok ? 'success' : 'error'
+      });
+      
+      // 定期清理日志
+      if (auditLog.length > 1000) {
+        auditLog.splice(0, 500);
+      }
+      
+      return output;
+    });
+  }
+};
+```
+
+#### 4. 代码转换插件
+
+```typescript
+import type { IsolatePlugin } from './types.ts'
+
+export const TransformPlugin: IsolatePlugin = {
+  name: 'custom:transform',
+  pre: ['opencode:loader'],
+  required: ['opencode:guard'],
+  setup(api) {
+    api.onLoad.tap((ctx) => {
+      // 在代码加载前转换
+      let code = ctx.request.code;
+      
+      // 添加严格模式
+      if (!code.includes('use strict')) {
+        code = `'use strict';\n${code}`;
+      }
+      
+      // 添加超时检测
+      const wrapped = `
+        let __execCount = 0;
+        const __original = ${code};
+        export default function(...args) {
+          if (++__execCount > 1000) {
+            throw new Error('Operation limit exceeded');
+          }
+          return __original(...args);
+        }
+      `;
+      
+      return {
+        ...ctx,
+        request: {
+          ...ctx.request,
+          code: wrapped
+        }
+      };
+    });
+  }
+};
+```
+
+#### 5. 缓存插件
+
+```typescript
+import type { IsolatePlugin } from './types.ts'
+import { createHash } from 'crypto';
+
+export const CachePlugin: IsolatePlugin = {
+  name: 'custom:cache',
+  required: ['opencode:guard'],
+  setup(api) {
+    const cache = new Map<string, unknown>();
+    const maxCacheSize = 100;
+    
+    api.onValidate.tap((request) => {
+      // 生成缓存键
+      const key = createHash('sha256')
+        .update(request.code + JSON.stringify(request.input))
+        .digest('hex');
+      
+      // 检查缓存
+      if (cache.has(key)) {
+        console.log('[Cache] Hit:', key.substring(0, 8));
+        (request as any).__cached = cache.get(key);
+      } else {
+        (request as any).__cacheKey = key;
+      }
+      
+      return request;
+    });
+    
+    api.onFormat.tap((output) => {
+      // 如果有缓存，直接返回
+      if ((output as any).__cached) {
+        return (output as any).__cached;
+      }
+      
+      // 存储到缓存
+      const key = (output as any).__cacheKey;
+      if (key && output.ok) {
+        if (cache.size >= maxCacheSize) {
+          // 删除最早的条目
+          const firstKey = cache.keys().next().value;
+          cache.delete(firstKey);
+        }
+        cache.set(key, output);
+        console.log('[Cache] Stored:', key.substring(0, 8));
+      }
+      
+      return output;
+    });
+  }
+};
+```
+
+#### 6. 速率限制插件
+
+```typescript
+import type { IsolatePlugin } from './types.ts'
+
+export const RateLimitPlugin: IsolatePlugin = {
+  name: 'custom:ratelimit',
+  required: ['opencode:guard'],
+  setup(api) {
+    const requests = new Map<string, number[]>();
+    const maxRequests = 10;
+    const windowMs = 60000; // 1分钟
+    
+    api.onValidate.tap((request) => {
+      const clientId = (request as any).clientId || 'default';
+      const now = Date.now();
+      
+      // 获取或创建请求记录
+      if (!requests.has(clientId)) {
+        requests.set(clientId, []);
+      }
+      
+      const clientRequests = requests.get(clientId)!;
+      
+      // 清理过期记录
+      const validRequests = clientRequests.filter(
+        time => now - time < windowMs
+      );
+      
+      // 检查限制
+      if (validRequests.length >= maxRequests) {
+        throw new Error(
+          `Rate limit exceeded: ${maxRequests} requests per ${windowMs}ms`
+        );
+      }
+      
+      // 记录新请求
+      validRequests.push(now);
+      requests.set(clientId, validRequests);
+      
+      return request;
+    });
+  }
+};
+```
+
+#### 使用多个插件
+
+```typescript
+import { create } from './kernel.ts';
+import { 
+  PerformancePlugin, 
+  AuditPlugin, 
+  RateLimitPlugin,
+  CachePlugin
+} from './plugins/custom/index.ts';
+
+const isolate = await create({
+  plugins: [
+    PerformancePlugin,
+    AuditPlugin,
+    RateLimitPlugin,
+    CachePlugin
+  ],
+  config: {
+    maxSize: 100_000,
+    timeout: 5000
+  }
+});
+
+// 执行代码
+const result = await isolate.execute({
+  code: 'export default (x) => x * 2',
+  input: 21,
+  // 自定义字段可以被插件读取
+  clientId: 'user-123'
+});
 ```
 
 ---
@@ -727,27 +998,54 @@ type Perms = "none" | {
 ```typescript
 {
   crypto: {
-    subtle: true,              // 启用 subtle API
-    limit: 65536,              // 最大字节数
-    methods: ['getRandomValues', 'randomUUID']  // 白名单
+    subtle: true,              // 启用 subtle API（默认 true）
+    limit: 65536,              // 最大字节数（默认 65536）
+    methods: ['getRandomValues', 'randomUUID', 'subtle']  // 白名单方法
   }
 }
 ```
 
 **使用示例**:
 ```javascript
+// 示例 1: 生成随机数和 UUID
 export default function() {
   const uuid = crypto.randomUUID();
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
   return { uuid, random: Array.from(bytes) };
 }
+
+// 示例 2: 使用 subtle API 进行加密
+export default async function(message) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(message);
+  
+  // SHA-256 哈希
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hash));
+  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  
+  return hashHex;
+}
+
+// 示例 3: 生成加密密钥
+export default async function() {
+  const key = await crypto.subtle.generateKey(
+    { name: 'AES-GCM', length: 256 },
+    true,
+    ['encrypt', 'decrypt']
+  );
+  
+  const exported = await crypto.subtle.exportKey('jwk', key);
+  return { algorithm: key.algorithm, keyData: exported };
+}
 ```
 
 **安全限制**:
-- 操作计数限制（默认 1000 次）
-- 数组大小限制（默认 65536 字节）
+- 操作计数限制（默认 1000 次，可配置）
+- 数组大小限制（默认 65536 字节，可配置）
 - 仅白名单方法可访问
+- 超过限制会抛出 `Error("Crypto operation limit exceeded")`
 
 #### 2. channel - 通信工具
 
@@ -759,23 +1057,87 @@ export default function() {
 
 **使用示例**:
 ```javascript
+// 示例 1: 发送消息到 Host
 export default function() {
-  // 发送消息到 Host
   channel.emit('log', 'Hello from worker');
+  channel.emit('progress', { step: 1, total: 10 });
+  return 'Messages sent';
+}
+
+// 示例 2: 监听并处理消息
+export default function() {
+  const messages = [];
   
-  // 监听来自其他 Worker 的消息
-  channel.on('greeting', (data) => {
+  // 订阅消息
+  const handler = (data) => {
     console.log('Received:', data);
+    messages.push(data);
+  };
+  
+  channel.on('notification', handler);
+  
+  // 发送测试消息
+  channel.emit('notification', { type: 'info', text: 'Test message' });
+  
+  // 等待消息处理
+  return new Promise(resolve => {
+    setTimeout(() => {
+      channel.off('notification', handler);  // 清理监听器
+      resolve(messages);
+    }, 100);
+  });
+}
+
+// 示例 3: Worker 间通信（需要多个 Worker）
+export default function(workerId) {
+  // Worker A 发送数据
+  if (workerId === 'A') {
+    channel.emit('data-stream', { from: 'A', value: Math.random() });
+    return 'Sent from A';
+  }
+  
+  // Worker B 接收数据
+  if (workerId === 'B') {
+    const received = [];
+    channel.on('data-stream', (data) => {
+      if (data.from === 'A') {
+        received.push(data.value);
+      }
+    });
+    return new Promise(resolve => {
+      setTimeout(() => resolve(received), 500);
+    });
+  }
+}
+
+// 示例 4: 错误处理
+export default function() {
+  channel.on('task', (data) => {
+    try {
+      // 处理数据
+      const result = processData(data);
+      channel.emit('task:success', result);
+    } catch (error) {
+      channel.emit('task:error', { message: error.message });
+    }
   });
   
-  return 'Message sent';
+  return 'Task handler registered';
 }
 ```
 
 **特性**:
 - 基于 `postMessage` 的安全通信
 - 消息队列（最多 100 条）
-- 微任务调度，避免阻塞
+- 微任务调度，避免阻塞主线程
+- 监听器数量限制（最多 50 个）
+- 自动错误捕获和日志记录
+
+**注意事项**:
+- 消息传递是异步的，使用 `Promise` 等待结果
+- 清理不需要的监听器以避免内存泄漏
+- 消息队列满时会丢弃新消息
+- 所有数据通过结构化克隆传递，不支持函数等特殊对象
 
 #### 3. database - 数据库工具
 
@@ -795,27 +1157,142 @@ export default function() {
 ```typescript
 {
   db: {
-    hosts: ['backup.db.example.com:5432']  // 额外允许的主机
+    hosts: ['backup.db.example.com:5432', 'replica.db.example.com']  // 额外允许的主机
   }
 }
 ```
 
 **使用示例**:
 ```javascript
+// 示例 1: 查询数据（使用 Query API）
 export default async function() {
-  // 访问 users 表（需要在 schemas/users.ts 定义）
-  const users = await db.users.findMany({
-    where: { active: true },
-    limit: 10
+  // db.users 是 Query 实例，提供简化的 API
+  const users = await db.users.select();
+  return users.map(u => ({ id: u.id, name: u.name }));
+}
+
+// 示例 2: 插入数据
+export default async function(userData) {
+  const result = await db.users
+    .insert({
+      name: userData.name,
+      email: userData.email,
+      createdAt: new Date()
+    })
+    .returning();
+  
+  return result[0];
+}
+
+// 示例 3: 更新数据（需要使用 drizzle-orm 操作符）
+export default async function({ userId, newName }) {
+  // 从 drizzle-orm 导入操作符
+  const { eq } = await import('drizzle-orm');
+  
+  const result = await db.users
+    .update({ name: newName })
+    .where(eq(db.db.users.id, userId))
+    .returning();
+  
+  return result[0];
+}
+
+// 示例 4: 删除数据
+export default async function(userId) {
+  const { eq } = await import('drizzle-orm');
+  
+  await db.users
+    .delete()
+    .where(eq(db.db.users.id, userId));
+  
+  return { success: true };
+}
+
+// 示例 5: 复杂查询（使用原生 Drizzle client）
+export default async function(filters) {
+  const { eq, and, gt, sql } = await import('drizzle-orm');
+  
+  // db.db 是原生 Drizzle client
+  const result = await db.db
+    .select({
+      userName: db.users.name,
+      postCount: sql<number>`count(${db.posts.id})`,
+    })
+    .from(db.users)
+    .leftJoin(db.posts, eq(db.users.id, db.posts.userId))
+    .where(and(
+      eq(db.users.active, true),
+      gt(db.posts.createdAt, filters.since)
+    ))
+    .groupBy(db.users.id);
+  
+  return result;
+}
+
+// 示例 6: 事务处理
+export default async function(transferData) {
+  const { eq } = await import('drizzle-orm');
+  
+  return await db.db.transaction(async (tx) => {
+    // 扣款
+    await tx.update(db.accounts)
+      .set({ balance: sql`balance - ${transferData.amount}` })
+      .where(eq(db.accounts.id, transferData.fromId));
+    
+    // 入账
+    await tx.update(db.accounts)
+      .set({ balance: sql`balance + ${transferData.amount}` })
+      .where(eq(db.accounts.id, transferData.toId));
+    
+    return { success: true };
   });
-  return users.length;
+}
+
+// 示例 7: 关闭连接
+export default async function() {
+  const users = await db.users.select();
+  
+  // 使用完毕后关闭连接（释放连接池）
+  db.close();
+  
+  return users;
 }
 ```
 
+**API 说明**:
+- `db.<tableName>` - Query 实例，提供简化的 CRUD 操作
+  - `.select()` - 查询所有字段
+  - `.insert(values)` - 插入数据
+  - `.update(values)` - 更新数据
+  - `.delete()` - 删除数据
+- `db.db` - 原生 Drizzle client，用于复杂查询（JOIN、聚合、事务等）
+- `db.close()` - 关闭连接，释放连接池资源
+
+**Schema 定义**（在 `src/schemas/users.ts` 中）:
+```typescript
+import { pgTable, serial, text, timestamp, boolean } from 'drizzle-orm/pg-core';
+
+export const users = pgTable('users', {
+  id: serial('id').primaryKey(),
+  name: text('name').notNull(),
+  email: text('email').notNull().unique(),
+  active: boolean('active').default(true),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+```
+
 **安全特性**:
-- 延迟加载（使用时才连接）
+- 延迟加载（首次使用时才建立连接）
 - 主机名白名单（拒绝 `*` 通配符）
-- 自动权限解析（从 DATABASE_URL）
+- 自动权限解析（从 DATABASE_URL 提取主机）
+- 连接池管理（避免连接泄漏）
+- 环境变量验证（要求 DATABASE_URL）
+
+**注意事项**:
+- 需要设置 `DATABASE_URL` 环境变量
+- 表定义必须在 `src/schemas/` 目录下
+- 使用复杂查询时需要导入 `drizzle-orm` 操作符
+- 执行完毕后调用 `db.close()` 释放连接
 
 ### 工具配置化
 
@@ -830,9 +1307,241 @@ const isolate = await create({
     crypto: {
       subtle: false,           // 禁用 subtle API
       limit: 1024,             // 限制为 1KB
+    },
+    db: {
+      hosts: ['db.production.com:5432']  // 额外主机
     }
   })
 });
+```
+
+### 工具高级用法与最佳实践
+
+#### 1. 性能优化：连接池管理
+
+```javascript
+// ❌ 错误：每次都创建新连接
+export default async function(userId) {
+  const users = await db.users.select();
+  // 忘记关闭连接
+  return users;
+}
+
+// ✅ 正确：使用完毕后释放连接
+export default async function(userId) {
+  try {
+    const users = await db.users.select();
+    return users;
+  } finally {
+    db.close();  // 释放到连接池
+  }
+}
+```
+
+#### 2. 工具组合使用模式
+
+```javascript
+// 模式 1: 审计日志
+export default async function(action) {
+  const actionId = crypto.randomUUID();
+  
+  // 记录操作
+  await db.auditLogs.insert({
+    id: actionId,
+    action: action.type,
+    timestamp: new Date()
+  });
+  
+  // 发送通知
+  channel.emit('audit', { actionId, type: action.type });
+  
+  return { actionId, success: true };
+}
+
+// 模式 2: 数据处理管道
+export default async function(rawData) {
+  const sessionId = crypto.randomUUID();
+  
+  // 阶段 1: 预处理
+  channel.emit('pipeline:start', { sessionId, stage: 'preprocess' });
+  const processed = rawData.map(item => ({
+    ...item,
+    hash: crypto.randomUUID()
+  }));
+  
+  // 阶段 2: 存储
+  channel.emit('pipeline:start', { sessionId, stage: 'storage' });
+  const stored = await Promise.all(
+    processed.map(item => db.items.insert(item).returning())
+  );
+  
+  // 阶段 3: 完成
+  channel.emit('pipeline:complete', { sessionId, count: stored.length });
+  db.close();
+  
+  return { sessionId, processed: stored.length };
+}
+
+// 模式 3: 分布式任务协调
+export default async function(taskId) {
+  // Worker A: 任务分发
+  const tasks = await db.tasks.select().where(eq(db.tasks.status, 'pending'));
+  
+  for (const task of tasks) {
+    channel.emit('task:assign', { 
+      taskId: task.id, 
+      assignee: crypto.randomUUID() 
+    });
+  }
+  
+  // Worker B: 任务执行（监听分配）
+  const results = [];
+  channel.on('task:assign', async (data) => {
+    const result = await processTask(data.taskId);
+    await db.tasks.update({ status: 'completed' })
+      .where(eq(db.tasks.id, data.taskId));
+    channel.emit('task:complete', result);
+  });
+  
+  return { distributed: tasks.length };
+}
+```
+
+#### 3. 错误处理和重试机制
+
+```javascript
+// 带重试的数据库操作
+export default async function(data, options = {}) {
+  const maxRetries = options.retries || 3;
+  const retryDelay = options.delay || 1000;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const result = await db.users.insert(data).returning();
+      
+      channel.emit('operation:success', { 
+        attempt, 
+        id: result[0].id 
+      });
+      
+      return result[0];
+    } catch (error) {
+      channel.emit('operation:retry', { 
+        attempt, 
+        error: error.message 
+      });
+      
+      if (attempt === maxRetries) {
+        throw new Error(`Failed after ${maxRetries} attempts: ${error.message}`);
+      }
+      
+      // 等待后重试
+      await new Promise(resolve => setTimeout(resolve, retryDelay * attempt));
+    } finally {
+      if (attempt === maxRetries) {
+        db.close();
+      }
+    }
+  }
+}
+```
+
+#### 4. 工具配置动态调整
+
+```typescript
+// 根据环境配置工具
+const isolate = await create({
+  config: config({
+    // 开发环境：完整功能
+    crypto: process.env.NODE_ENV === 'development' ? {
+      subtle: true,
+      limit: 1024 * 1024,  // 1MB
+      methods: ['getRandomValues', 'randomUUID', 'subtle']
+    } : {
+      // 生产环境：限制功能
+      subtle: false,
+      limit: 65536,  // 64KB
+      methods: ['randomUUID']  // 仅允许 UUID
+    },
+    
+    db: {
+      hosts: process.env.DB_REPLICAS?.split(',') || []
+    }
+  })
+});
+```
+
+#### 5. 安全限制和验证
+
+```javascript
+// 输入验证
+export default async function(userData) {
+  // 验证必需字段
+  if (!userData.email || !userData.name) {
+    throw new Error('Missing required fields');
+  }
+  
+  // 验证邮箱格式
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(userData.email)) {
+    throw new Error('Invalid email format');
+  }
+  
+  // 验证数据大小
+  const dataSize = JSON.stringify(userData).length;
+  if (dataSize > 10000) {
+    throw new Error('Data too large');
+  }
+  
+  // 安全地插入数据
+  try {
+    const result = await db.users.insert({
+      name: userData.name.substring(0, 100),  // 限制长度
+      email: userData.email.toLowerCase(),     // 规范化
+      createdAt: new Date()
+    }).returning();
+    
+    return result[0];
+  } finally {
+    db.close();
+  }
+}
+```
+
+#### 6. 性能监控
+
+```javascript
+// 带性能监控的操作
+export default async function(query) {
+  const startTime = performance.now();
+  const operationId = crypto.randomUUID();
+  
+  try {
+    channel.emit('perf:start', { operationId, query });
+    
+    const result = await db.users.select()
+      .where(/* ... */);
+    
+    const duration = performance.now() - startTime;
+    channel.emit('perf:end', { 
+      operationId, 
+      duration, 
+      resultCount: result.length 
+    });
+    
+    return result;
+  } catch (error) {
+    const duration = performance.now() - startTime;
+    channel.emit('perf:error', { 
+      operationId, 
+      duration, 
+      error: error.message 
+    });
+    throw error;
+  } finally {
+    db.close();
+  }
+}
 ```
 
 ### 自定义工具
@@ -1252,6 +1961,204 @@ const output = await isolate.execute({
 });
 ```
 
+### 5. 数据 ETL 管道
+
+```typescript
+// ETL（提取、转换、加载）管道
+const etlCode = `
+export default async function(source) {
+  const traceId = crypto.randomUUID();
+  
+  // Extract: 从数据库读取原始数据
+  channel.emit('etl:extract', { traceId, source });
+  const rawData = await db[source].select();
+  
+  // Transform: 数据转换和清洗
+  channel.emit('etl:transform', { traceId, count: rawData.length });
+  const transformed = rawData.map(item => ({
+    id: crypto.randomUUID(),
+    data: JSON.stringify(item),
+    hash: crypto.subtle ? 
+      crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(item))) :
+      crypto.randomUUID(),
+    processedAt: new Date()
+  }));
+  
+  // Load: 加载到目标表
+  channel.emit('etl:load', { traceId, count: transformed.length });
+  const results = await db.processed.insert(transformed).returning();
+  
+  channel.emit('etl:complete', { traceId, loaded: results.length });
+  db.close();
+  
+  return { traceId, processed: results.length };
+}
+`;
+
+const result = await isolate.execute({
+  code: etlCode,
+  input: 'users',
+  tools: ['crypto', 'channel', 'db'],
+  timeout: 60000  // 1分钟超时
+});
+```
+
+### 6. 实时数据聚合
+
+```typescript
+// 实时数据聚合服务
+const aggregatorCode = `
+export default async function(config) {
+  const { and, gte, lte, sql } = await import('drizzle-orm');
+  
+  // 按时间范围聚合
+  const result = await db.db
+    .select({
+      date: sql\`DATE(\${db.events.createdAt})\`,
+      count: sql<number>\`count(*)\`,
+      avgDuration: sql<number>\`avg(\${db.events.duration})\`,
+    })
+    .from(db.events)
+    .where(and(
+      gte(db.events.createdAt, config.startDate),
+      lte(db.events.createdAt, config.endDate)
+    ))
+    .groupBy(sql\`DATE(\${db.events.createdAt})\`)
+    .orderBy(sql\`DATE(\${db.events.createdAt})\`);
+  
+  // 发送聚合结果
+  channel.emit('aggregation:result', {
+    id: crypto.randomUUID(),
+    data: result,
+    timestamp: Date.now()
+  });
+  
+  db.close();
+  return result;
+}
+`;
+
+const aggregation = await isolate.execute({
+  code: aggregatorCode,
+  input: {
+    startDate: new Date('2024-01-01'),
+    endDate: new Date('2024-12-31')
+  },
+  tools: ['crypto', 'channel', 'db'],
+  timeout: 30000
+});
+```
+
+### 7. Webhook 处理器
+
+```typescript
+// Webhook 事件处理
+const webhookHandler = `
+export default async function(payload) {
+  const eventId = crypto.randomUUID();
+  
+  // 验证和记录 webhook
+  await db.webhooks.insert({
+    id: eventId,
+    source: payload.source,
+    data: JSON.stringify(payload),
+    receivedAt: new Date()
+  });
+  
+  // 根据事件类型路由
+  switch (payload.type) {
+    case 'user.created':
+      channel.emit('user:welcome', { userId: payload.data.id });
+      break;
+    case 'payment.success':
+      channel.emit('payment:notify', { orderId: payload.data.orderId });
+      break;
+    default:
+      channel.emit('webhook:unknown', { type: payload.type });
+  }
+  
+  db.close();
+  return { eventId, processed: true };
+}
+`;
+
+// 处理 webhook
+app.post('/webhook', async (req) => {
+  const payload = await req.json();
+  const result = await isolate.execute({
+    code: webhookHandler,
+    input: payload,
+    tools: ['crypto', 'channel', 'db'],
+    timeout: 5000
+  });
+  return result;
+});
+```
+
+### 8. 定时任务调度
+
+```typescript
+// Cron 任务执行器
+const cronTask = `
+export default async function(taskConfig) {
+  const runId = crypto.randomUUID();
+  channel.emit('cron:start', { runId, task: taskConfig.name });
+  
+  try {
+    // 查询需要处理的数据
+    const { lt } = await import('drizzle-orm');
+    const pending = await db.tasks
+      .select()
+      .where(lt(db.tasks.scheduledAt, new Date()));
+    
+    // 批量处理
+    const processed = [];
+    for (const task of pending) {
+      const result = await processTask(task);
+      processed.push(result);
+      
+      channel.emit('cron:task', { 
+        runId, 
+        taskId: task.id, 
+        status: 'completed' 
+      });
+    }
+    
+    // 更新状态
+    await db.tasks.update({ status: 'completed' })
+      .where(lt(db.tasks.scheduledAt, new Date()));
+    
+    channel.emit('cron:complete', { 
+      runId, 
+      processed: processed.length 
+    });
+    
+    return { runId, completed: processed.length };
+  } catch (error) {
+    channel.emit('cron:error', { runId, error: error.message });
+    throw error;
+  } finally {
+    db.close();
+  }
+}
+
+function processTask(task) {
+  // 任务处理逻辑
+  return { id: task.id, result: 'processed' };
+}
+`;
+
+// 每分钟运行
+setInterval(async () => {
+  await isolate.execute({
+    code: cronTask,
+    input: { name: 'cleanup' },
+    tools: ['crypto', 'channel', 'db'],
+    timeout: 30000
+  });
+}, 60000);
+```
+
 ---
 
 ## 最佳实践
@@ -1339,6 +2246,283 @@ const isolate = await create({
 {
   "timeout": 5000  // 避免过长或过短
 }
+
+// 批量处理而非逐个执行
+export default async function(ids) {
+  // ✅ 一次查询
+  const { inArray } = await import('drizzle-orm');
+  const users = await db.users.select()
+    .where(inArray(db.users.id, ids));
+  
+  return users;
+}
+
+// ❌ 避免循环查询
+export default async function(ids) {
+  const users = [];
+  for (const id of ids) {
+    const user = await db.users.select()
+      .where(eq(db.users.id, id));
+    users.push(user[0]);
+  }
+  return users;
+}
+```
+
+### 6. 资源管理
+
+**✅ 推荐**:
+```typescript
+// 始终清理资源
+export default async function() {
+  try {
+    const data = await db.users.select();
+    return data;
+  } finally {
+    db.close();  // 确保连接被释放
+  }
+}
+
+// 限制内存使用
+export default function(data) {
+  // 分批处理大数据集
+  const batchSize = 100;
+  const results = [];
+  
+  for (let i = 0; i < data.length; i += batchSize) {
+    const batch = data.slice(i, i + batchSize);
+    results.push(...processBatch(batch));
+  }
+  
+  return results;
+}
+```
+
+**❌ 避免**:
+```typescript
+// 不要保持连接打开
+export default async function() {
+  const data = await db.users.select();
+  return data;
+  // ❌ 忘记调用 db.close()
+}
+
+// 避免一次性加载大量数据
+export default async function() {
+  const allUsers = await db.users.select();  // ❌ 可能OOM
+  return allUsers.map(u => transform(u));
+}
+```
+
+### 7. 错误处理模式
+
+**✅ 推荐**:
+```typescript
+// 详细的错误信息
+export default async function(userId) {
+  if (!userId) {
+    throw new Error('userId is required');
+  }
+  
+  if (typeof userId !== 'number') {
+    throw new TypeError(`Expected number, got ${typeof userId}`);
+  }
+  
+  const { eq } = await import('drizzle-orm');
+  const users = await db.users.select()
+    .where(eq(db.users.id, userId));
+  
+  if (users.length === 0) {
+    throw new Error(`User not found: ${userId}`);
+  }
+  
+  return users[0];
+}
+
+// 优雅降级
+export default async function(options) {
+  try {
+    return await primaryOperation(options);
+  } catch (error) {
+    console.warn('Primary operation failed:', error.message);
+    // 尝试备用方案
+    return await fallbackOperation(options);
+  }
+}
+```
+
+### 8. 安全编码
+
+**✅ 推荐**:
+```typescript
+// 输入验证和清理
+export default async function(userInput) {
+  // 验证类型
+  if (typeof userInput.name !== 'string') {
+    throw new TypeError('name must be a string');
+  }
+  
+  // 验证长度
+  if (userInput.name.length > 100) {
+    throw new Error('name too long (max 100 characters)');
+  }
+  
+  // 清理输入
+  const sanitized = {
+    name: userInput.name.trim().substring(0, 100),
+    email: userInput.email.toLowerCase().trim()
+  };
+  
+  // 验证格式
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(sanitized.email)) {
+    throw new Error('invalid email format');
+  }
+  
+  return await db.users.insert(sanitized).returning();
+}
+
+// 避免注入攻击
+export default async function(search) {
+  const { like } = await import('drizzle-orm');
+  
+  // ✅ 使用参数化查询
+  const users = await db.users.select()
+    .where(like(db.users.name, `%${search}%`));
+  
+  return users;
+}
+```
+
+**❌ 避免**:
+```typescript
+// 不要信任用户输入
+export default async function(userInput) {
+  // ❌ 直接使用未验证的输入
+  await db.users.insert(userInput);
+}
+
+// 不要拼接 SQL（虽然 Drizzle 会防止，但要注意）
+export default async function(tableName) {
+  // ❌ 动态表名可能有风险
+  const data = await db[tableName].select();
+  return data;
+}
+```
+
+### 9. 工具组合最佳实践
+
+**✅ 推荐**:
+```typescript
+// 模式：审计追踪
+export default async function(action) {
+  const traceId = crypto.randomUUID();
+  
+  try {
+    // 记录开始
+    channel.emit('audit:start', { traceId, action: action.type });
+    
+    // 执行操作
+    const result = await performAction(action);
+    
+    // 记录到数据库
+    await db.auditLog.insert({
+      traceId,
+      action: action.type,
+      result: JSON.stringify(result),
+      status: 'success',
+      timestamp: new Date()
+    });
+    
+    // 通知完成
+    channel.emit('audit:complete', { traceId });
+    
+    return result;
+  } catch (error) {
+    // 记录错误
+    await db.auditLog.insert({
+      traceId,
+      action: action.type,
+      error: error.message,
+      status: 'error',
+      timestamp: new Date()
+    });
+    
+    channel.emit('audit:error', { traceId, error: error.message });
+    throw error;
+  } finally {
+    db.close();
+  }
+}
+
+// 模式：幂等性保证
+export default async function(operation) {
+  const { eq } = await import('drizzle-orm');
+  const idempotencyKey = operation.key || crypto.randomUUID();
+  
+  // 检查是否已执行
+  const existing = await db.operations.select()
+    .where(eq(db.operations.key, idempotencyKey));
+  
+  if (existing.length > 0) {
+    console.log('Operation already executed:', idempotencyKey);
+    return existing[0].result;
+  }
+  
+  // 执行操作
+  const result = await performOperation(operation);
+  
+  // 记录结果
+  await db.operations.insert({
+    key: idempotencyKey,
+    result: JSON.stringify(result),
+    timestamp: new Date()
+  });
+  
+  db.close();
+  return result;
+}
+```
+
+### 10. 测试友好的代码
+
+**✅ 推荐**:
+```typescript
+// 可测试的函数结构
+export default async function(input, options = {}) {
+  // 参数验证
+  validateInput(input);
+  
+  // 业务逻辑
+  const processed = await processData(input);
+  
+  // 副作用（可 mock）
+  if (!options.skipNotification) {
+    channel.emit('processed', processed);
+  }
+  
+  if (!options.skipPersistence) {
+    await db.results.insert(processed);
+    db.close();
+  }
+  
+  return processed;
+}
+
+function validateInput(input) {
+  if (!input || typeof input !== 'object') {
+    throw new Error('Invalid input');
+  }
+}
+
+async function processData(input) {
+  // 纯业务逻辑
+  return {
+    ...input,
+    processed: true,
+    timestamp: Date.now()
+  };
+}
 ```
 
 ---
@@ -1407,6 +2591,17 @@ A: 需要在请求中提供相应的权限：
 }
 ```
 
+或者如果需要访问多个域名：
+```json
+{
+  "permissions": {
+    "net": ["api.example.com", "cdn.example.com", "*.github.com"]
+  }
+}
+```
+
+**注意**：在严格模式下使用通配符会产生警告。
+
 ### Q: 如何调试用户代码？
 
 A: 查看响应中的 `logs` 字段：
@@ -1416,6 +2611,27 @@ A: 查看响应中的 `logs` 字段：
     {"level": "log", "message": "Debug info"},
     {"level": "error", "message": "Error details"}
   ]
+}
+```
+
+更详细的调试方法：
+```javascript
+export default function(data) {
+  // 1. 使用 console.log 输出调试信息
+  console.log('Input data:', data);
+  console.log('Type:', typeof data);
+  
+  // 2. 输出中间结果
+  const step1 = processStep1(data);
+  console.log('After step1:', step1);
+  
+  // 3. 捕获并输出错误
+  try {
+    return processStep2(step1);
+  } catch (error) {
+    console.error('Error in step2:', error.message, error.stack);
+    throw error;
+  }
 }
 ```
 
@@ -1429,9 +2645,339 @@ A: ClusterPlugin 维护 2-8 个 Worker 实例，自动调度和回收：
 健康检查: 30 秒
 ```
 
+Worker 池优势：
+- 避免重复创建/销毁 Worker 开销
+- 提高并发处理能力
+- 自动回收空闲 Worker
+- 异常 Worker 自动移除
+
+如需禁用 Worker 池，使用 SandboxPlugin：
+```typescript
+import { create, SandboxPlugin } from './kernel.ts';
+const isolate = await create({
+  plugins: [SandboxPlugin]  // 每次创建新 Worker
+});
+```
+
 ### Q: 如何添加自定义工具？
 
 A: 参考[自定义工具](#自定义工具)章节，在 `tools/` 目录创建工具文件并注册。
+
+基本步骤：
+1. 在 `src/tools/` 创建工具文件（如 `http.ts`）
+2. 实现 `Tool` 接口
+3. 在 `src/tools/index.ts` 中注册
+4. 重启服务
+
+### Q: 为什么 `db` 工具不可用？
+
+A: 确保已设置 `DATABASE_URL` 环境变量：
+
+```bash
+export DATABASE_URL="postgresql://user:password@localhost:5432/dbname"
+```
+
+或在代码中设置：
+```typescript
+Deno.env.set('DATABASE_URL', 'postgresql://...');
+```
+
+常见错误：
+1. **"DATABASE_URL required"** - 未设置环境变量
+2. **"PoolAPI not available"** - 缺少 PoolPlugin，确保插件正确注册
+3. **"Schema scan error"** - 检查 `src/schemas/` 目录是否存在且包含有效的表定义
+
+### Q: 如何处理超时错误？
+
+A: 超时错误通常表示代码执行时间过长：
+
+```json
+{
+  "ok": false,
+  "logs": [{
+    "level": "exception",
+    "message": "Execution timeout"
+  }]
+}
+```
+
+解决方案：
+1. **增加超时时间**：
+   ```json
+   { "timeout": 10000 }  // 10秒
+   ```
+
+2. **优化代码性能**：
+   ```javascript
+   // ❌ 慢
+   for (let i = 0; i < 1000000; i++) {
+     await db.users.select().where(eq(db.users.id, i));
+   }
+   
+   // ✅ 快
+   const { inArray } = await import('drizzle-orm');
+   const ids = Array.from({ length: 1000000 }, (_, i) => i);
+   const users = await db.users.select()
+     .where(inArray(db.users.id, ids));
+   ```
+
+3. **分批处理**：
+   ```javascript
+   export default async function(largeData) {
+     const batchSize = 100;
+     const results = [];
+     
+     for (let i = 0; i < largeData.length; i += batchSize) {
+       const batch = largeData.slice(i, i + batchSize);
+       results.push(...await processBatch(batch));
+     }
+     
+     return results;
+   }
+   ```
+
+### Q: 为什么 crypto 工具报错 "operation limit exceeded"？
+
+A: crypto 工具有操作次数限制（默认 1000 次）：
+
+```typescript
+// 配置更高的限制
+const isolate = await create({
+  config: {
+    crypto: {
+      limit: 65536,  // 增加字节限制
+      // 注：操作次数限制在工具内部硬编码为 1000
+    }
+  }
+});
+```
+
+如果确实需要大量加密操作，考虑：
+1. 在 Worker 外部预处理
+2. 分批执行多个任务
+3. 自定义 crypto 工具移除限制
+
+### Q: channel 工具的消息没有收到？
+
+A: 检查以下几点：
+
+1. **消息是异步的**：
+   ```javascript
+   // ❌ 立即返回可能收不到消息
+   export default function() {
+     const messages = [];
+     channel.on('test', (data) => messages.push(data));
+     channel.emit('test', 'hello');
+     return messages;  // 可能为空
+   }
+   
+   // ✅ 等待消息处理
+   export default function() {
+     const messages = [];
+     channel.on('test', (data) => messages.push(data));
+     channel.emit('test', 'hello');
+     
+     return new Promise(resolve => {
+       setTimeout(() => resolve(messages), 100);
+     });
+   }
+   ```
+
+2. **监听器数量限制**：最多 50 个监听器
+
+3. **消息队列满**：最多 100 条待处理消息
+
+4. **清理监听器**：
+   ```javascript
+   const handler = (data) => console.log(data);
+   channel.on('topic', handler);
+   
+   // 使用完毕后移除
+   channel.off('topic', handler);
+   ```
+
+### Q: 如何查看详细的权限信息？
+
+A: 启用审计模式：
+
+```typescript
+const isolate = await create({
+  config: { audit: true }
+});
+```
+
+输出示例：
+```
+[Audit] {
+  "tools": ["database", "crypto"],
+  "permissions": {
+    "env": ["DATABASE_URL"],
+    "net": ["localhost:5432"]
+  },
+  "user": {},
+  "merged": {
+    "env": ["DATABASE_URL"],
+    "net": ["localhost:5432"]
+  }
+}
+```
+
+### Q: 数据库连接池耗尽怎么办？
+
+A: 确保始终调用 `db.close()`：
+
+```javascript
+// ❌ 忘记关闭
+export default async function() {
+  const users = await db.users.select();
+  return users;
+}
+
+// ✅ 使用 finally 确保关闭
+export default async function() {
+  try {
+    const users = await db.users.select();
+    return users;
+  } finally {
+    db.close();
+  }
+}
+```
+
+连接池配置（在 PoolPlugin 中）：
+```typescript
+{
+  maxConnections: 10,      // 最大连接数
+  idleTimeout: 30000,      // 空闲超时
+  connectionTimeout: 5000  // 连接超时
+}
+```
+
+### Q: 如何处理大文件或大数据集？
+
+A: Isolate 有代码大小限制（默认 100KB）：
+
+```typescript
+const isolate = await create({
+  config: {
+    maxSize: 1_000_000  // 1MB
+  }
+});
+```
+
+对于大数据处理：
+1. **不要在代码中嵌入数据**：通过 `input` 传递
+2. **流式处理**：分批处理而非一次性加载
+3. **使用数据库**：存储大数据，在 Worker 中查询
+
+```javascript
+// ❌ 不要这样
+const largeData = [/* 10万条记录 */];
+export default function() {
+  return largeData.map(item => process(item));
+}
+
+// ✅ 应该这样
+export default async function() {
+  const batchSize = 1000;
+  let offset = 0;
+  const results = [];
+  
+  while (true) {
+    const batch = await db.items
+      .select()
+      .limit(batchSize)
+      .offset(offset);
+    
+    if (batch.length === 0) break;
+    
+    results.push(...batch.map(item => process(item)));
+    offset += batchSize;
+  }
+  
+  db.close();
+  return results;
+}
+```
+
+### Q: 权限验证失败怎么办？
+
+A: 常见权限错误：
+
+1. **"PermissionDenied: Requires net access to..."**
+   ```json
+   {
+     "permissions": {
+       "net": ["example.com"]  // 添加所需主机
+     }
+   }
+   ```
+
+2. **"PermissionDenied: Requires env access"**
+   ```json
+   {
+     "permissions": {
+       "env": ["DATABASE_URL"]  // 添加环境变量
+     }
+   }
+   ```
+
+3. **严格模式警告**：
+   ```
+   [Strict] Wildcard permission detected
+   [Strict] Too many hosts: 15
+   ```
+   
+   这些是警告，不会阻止执行。如需禁用：
+   ```typescript
+   const isolate = await create({
+     config: { strict: false }
+   });
+   ```
+
+### Q: 如何在生产环境中使用？
+
+A: 生产环境配置建议：
+
+```typescript
+const isolate = await create({
+  config: {
+    // 安全配置
+    maxSize: 50_000,         // 限制代码大小
+    timeout: 3000,           // 设置合理超时
+    strict: true,            // 启用严格模式
+    audit: false,            // 生产环境关闭审计日志
+    
+    // 工具限制
+    crypto: {
+      subtle: false,         // 生产环境禁用 subtle API
+      limit: 4096,           // 限制字节数
+      methods: ['randomUUID'] // 仅允许 UUID
+    },
+    
+    // 数据库白名单
+    db: {
+      hosts: ['prod-db.internal:5432']
+    }
+  }
+});
+
+// 错误处理
+try {
+  const result = await isolate.execute(request);
+  if (!result.ok) {
+    // 记录错误但不暴露敏感信息
+    logger.error('Execution failed', {
+      duration: result.duration,
+      hasLogs: result.logs.length > 0
+    });
+  }
+  return result;
+} catch (error) {
+  logger.error('Isolate error', { error: error.message });
+  return { ok: false, error: 'Internal error' };
+}
+```
 
 ---
 
