@@ -12,10 +12,20 @@ export type Perms = "none" | {
 
 export interface Tool {
   name: string;
-  setup: (globals: Record<string, unknown>) => void | Promise<void>;
+  setup: (globals: Record<string, unknown>, internal?: InternalAPI) => void | Promise<void>;
   teardown?: (globals: Record<string, unknown>) => void | Promise<void>;
   permissions?: Perms | ((ctx: Context) => Perms);
   config?: unknown;
+}
+
+export interface InternalAPI {
+  pool?: {
+    get: (url: string) => unknown;
+    release: (url: string) => void;
+    stats: () => Record<string, { refs: number; used: number; health: string }>;
+    size: () => number;
+    healthCheck: () => void;
+  };
 }
 
 export interface Registry {

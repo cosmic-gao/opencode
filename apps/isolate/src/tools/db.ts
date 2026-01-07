@@ -1,7 +1,7 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { AnyPgTable } from 'drizzle-orm/pg-core';
-import type { Perms, Tool } from '../types.ts';
+import type { Perms, Tool, InternalAPI } from '../types.ts';
 import { inject } from '../common/index.ts';
 import type { PoolAPI } from '../pool.ts';
 
@@ -155,8 +155,8 @@ export function db(config?: Config): Tool {
       };
     },
     config,
-    setup: async (scope: Record<string, unknown>): Promise<void> => {
-      const pool = scope.__pool__ as PoolAPI | undefined;
+    setup: async (scope: Record<string, unknown>, internal?: InternalAPI): Promise<void> => {
+      const pool = internal?.pool;
       if (!pool) {
         throw new Error('PoolAPI not available. Ensure PoolPlugin is registered.');
       }
@@ -166,7 +166,7 @@ export function db(config?: Config): Tool {
         throw new Error('DATABASE_URL environment variable is required');
       }
 
-      instance = await Store.create(url, pool);
+      instance = await Store.create(url, pool as PoolAPI);
       inject(scope, 'db', instance);
     },
     teardown: (): void => {

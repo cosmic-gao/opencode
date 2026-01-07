@@ -69,6 +69,23 @@ function freezeDeno(): void {
     try {
       Object.freeze(Deno.permissions);
       
+      const originalEnv = Deno.env;
+      const envSnapshot = originalEnv.toObject();
+      
+      const readonlyEnv = {
+        get: (key: string) => envSnapshot[key],
+        has: (key: string) => key in envSnapshot,
+        toObject: () => ({ ...envSnapshot }),
+        set: () => { throw new Error('Deno.env is readonly in sandbox'); },
+        delete: () => { throw new Error('Deno.env is readonly in sandbox'); },
+      };
+      
+      Object.defineProperty(Deno, 'env', {
+        value: readonlyEnv,
+        writable: false,
+        configurable: false,
+      });
+      
       const denoProps = Object.getOwnPropertyNames(Deno);
       for (const prop of denoProps) {
         if (prop !== 'env') {

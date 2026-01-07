@@ -93,10 +93,9 @@ async function run(packet: Packet): Promise<Output> {
   const selected = names.map(name => registry[name]).filter(Boolean);
 
   try {
-    // Add pool to scope for db tool
-    scope.__pool__ = poolAPI;
+    const internal = { pool: poolAPI };
     
-    await mount(scope, tools, names, packet.globals);
+    await mount(scope, tools, names, packet.globals, internal);
 
     const url = bust(packet.url);
     const mod = await import(url);

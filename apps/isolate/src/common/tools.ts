@@ -1,4 +1,4 @@
-import type { Tool, Registry } from '../types.ts';
+import type { Tool, Registry, InternalAPI } from '../types.ts';
 import { provide } from './inject.ts';
 
 export function index(items: Tool[]): Registry {
@@ -9,17 +9,17 @@ export function index(items: Tool[]): Registry {
   return result;
 }
 
-export function setup(items: Tool[], scope: Record<string, unknown>): void {
+export function setup(items: Tool[], scope: Record<string, unknown>, internal?: InternalAPI): void {
   for (const tool of items) {
-    tool.setup(scope);
+    tool.setup(scope, internal);
   }
 }
 
-export async function install(scope: Record<string, unknown>, tools: Tool[]): Promise<string[]> {
+export async function install(scope: Record<string, unknown>, tools: Tool[], internal?: InternalAPI): Promise<string[]> {
   const installed: string[] = [];
   try {
     for (const tool of tools) {
-      await tool.setup(scope);
+      await tool.setup(scope, internal);
       installed.push(tool.name);
     }
     return installed;
@@ -52,6 +52,7 @@ export async function mount(
   items: Tool[],
   names: string[] = [],
   data: Record<string, unknown> = {},
+  internal?: InternalAPI,
 ): Promise<void> {
   const registry = index(items);
   const selected: Tool[] = [];
@@ -67,5 +68,5 @@ export async function mount(
     provide(scope, data);
   }
 
-  await install(scope, selected);
+  await install(scope, selected, internal);
 }
