@@ -11,12 +11,14 @@ interface PoolWorker {
   lastActive: number
   health: 'ok' | 'suspected' | 'dead'
   permissions?: Deno.PermissionOptions
+  executions: number
 }
 
 interface ClusterOptions {
   min: number
   max: number
   idle: number
+  quota: number
 }
 
 class Cluster {
@@ -29,6 +31,7 @@ class Cluster {
       min: 2,
       max: 8,
       idle: 120_000,
+      quota: 5,
       ...config,
     }
   }
@@ -58,6 +61,7 @@ class Cluster {
       lastActive: now,
       health: 'ok',
       permissions,
+      executions: 0,
     }
     this.pool.push(worker)
     return worker
@@ -117,6 +121,12 @@ class Cluster {
   private find(permissions?: Deno.PermissionOptions): PoolWorker | null {
     return this.pool.find((w) => {
       if (w.busy || w.health !== 'ok') return false
+      
+      if (w.executions >= this.config.quota) {
+        w.health = 'dead'
+        return false
+      }
+      
       const wPerms = JSON.stringify(w.permissions)
       const reqPerms = JSON.stringify(permissions)
       return wPerms === reqPerms
@@ -149,8 +159,14 @@ class Cluster {
     worker.used = Date.now()
     worker.lastActive = Date.now()
     worker.executor = null
+    worker.executions++
+    
     if (worker.health === 'suspected') {
       worker.health = 'ok'
+    }
+    
+    if (worker.executions >= this.config.quota) {
+      worker.health = 'dead'
     }
   }
 
@@ -250,7 +266,12 @@ export const ClusterPlugin: IsolatePlugin = {
       throw new Error('ClusterPlugin requires onWorker from SandboxPlugin')
     }
 
-    const cluster = new Cluster({ min: 0, max: 8, idle: 120_000 })
+    const cluster = new Cluster({ 
+      min: 0, 
+      max: 8, 
+      idle: 120_000, 
+      quota: 5 
+    })
     await cluster.init(factory.spawn)
 
     api.onExecute.tap(async (ctx) => {

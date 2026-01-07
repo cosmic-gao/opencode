@@ -147,7 +147,6 @@ export function db(config?: Config): Tool {
     permissions: (): Perms => {
       const extra = config?.hosts || [];
       const hosts = ['localhost', '127.0.0.1', '0.0.0.0'];
-      
   
       return {
         env: true,

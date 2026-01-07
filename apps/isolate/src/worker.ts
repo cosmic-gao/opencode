@@ -1,8 +1,10 @@
 import type { Entry, Fault, Level, Output, Packet } from './types.ts';
 import { build } from './tools/index.ts';
-import { mount, bust, fault, reset, stringify, unmount, index } from './common/index.ts';
+import { mount, bust, fault, reset, stringify, unmount, index, freeze } from './common/index.ts';
 import { Pool } from './pool.ts';
 import type { PoolAPI } from './pool.ts';
+
+freeze();
 
 const tools = build();
 
