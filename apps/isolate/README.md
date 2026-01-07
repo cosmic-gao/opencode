@@ -92,11 +92,20 @@ curl -X POST http://localhost:8787/execute \
 #### 示例 1: crypto 工具 - 生成随机数和 UUID
 
 ```bash
+# 方式 1: 使用默认配置
 curl -X POST http://localhost:8787/execute \
   -H "Content-Type: application/json" \
   -d '{
     "code": "export default function() { const uuid = crypto.randomUUID(); const bytes = new Uint8Array(16); crypto.getRandomValues(bytes); return { uuid, bytes: Array.from(bytes) }; }",
     "tools": ["crypto"]
+  }'
+
+# 方式 2: 使用自定义配置（限制字节数）
+curl -X POST http://localhost:8787/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "export default function() { const uuid = crypto.randomUUID(); const bytes = new Uint8Array(8); crypto.getRandomValues(bytes); return { uuid, bytes: Array.from(bytes) }; }",
+    "tools": [["crypto", { "limit": 1024, "methods": ["randomUUID", "getRandomValues"] }]]
   }'
 ```
 
@@ -165,11 +174,20 @@ curl -X POST http://localhost:8787/execute \
 
 ```bash
 # 需要先设置环境变量: export DATABASE_URL="postgresql://user:pass@localhost:5432/db"
+# 方式 1: 使用默认配置
 curl -X POST http://localhost:8787/execute \
   -H "Content-Type: application/json" \
   -d '{
     "code": "export default async function() { const users = await db.users.select().limit(10); return { total: users.length, users: users.map(u => ({ id: u.id, name: u.name })) }; }",
     "tools": ["db"]
+  }'
+
+# 方式 2: 使用自定义配置（允许额外主机）
+curl -X POST http://localhost:8787/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "export default async function() { const users = await db.users.select().limit(10); return { total: users.length, users: users.map(u => ({ id: u.id, name: u.name })) }; }",
+    "tools": [["db", { "hosts": ["replica.db.example.com:5432"] }]]
   }'
 ```
 
@@ -191,12 +209,26 @@ curl -X POST http://localhost:8787/execute \
 #### 示例 5: 多工具组合使用
 
 ```bash
+# 方式 1: 所有工具使用默认配置
 curl -X POST http://localhost:8787/execute \
   -H "Content-Type: application/json" \
   -d '{
     "code": "export default async function(userId) { const users = await db.users.select().limit(1); const user = users[0]; const sessionId = crypto.randomUUID(); channel.emit(\"user:login\", { userId, sessionId, timestamp: Date.now() }); return { user: user?.name, sessionId }; }",
     "input": 123,
     "tools": ["crypto", "channel", "db"]
+  }'
+
+# 方式 2: 混合配置（部分工具带配置）
+curl -X POST http://localhost:8787/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "export default async function(userId) { const users = await db.users.select().limit(1); const user = users[0]; const sessionId = crypto.randomUUID(); channel.emit(\"user:login\", { userId, sessionId, timestamp: Date.now() }); return { user: user?.name, sessionId }; }",
+    "input": 123,
+    "tools": [
+      ["crypto", { "subtle": false }],
+      "channel",
+      ["db", { "hosts": ["replica.db.internal:5432"] }]
+    ]
   }'
 ```
 
@@ -1296,7 +1328,11 @@ export const users = pgTable('users', {
 
 ### 工具配置化
 
-工具支持运行时配置，允许用户自定义权限和行为：
+工具支持两种配置方式：**全局配置**（创建 Isolate 实例时）和**请求级配置**（执行代码时）。
+
+#### 1. 全局配置（Isolate 实例级别）
+
+在创建 Isolate 实例时配置，适用于所有后续请求的默认设置：
 
 ```typescript
 import { create } from './kernel.ts';
@@ -1304,13 +1340,169 @@ import { config } from './config.ts';
 
 const isolate = await create({
   config: config({
+    // 全局配置：影响所有请求
     crypto: {
       subtle: false,           // 禁用 subtle API
       limit: 1024,             // 限制为 1KB
     },
     db: {
-      hosts: ['db.production.com:5432']  // 额外主机
+      hosts: ['db.production.com:5432']  // 全局允许的额外主机
     }
+  })
+});
+
+// 所有请求都会使用上述配置
+await isolate.execute({
+  code: 'export default () => crypto.randomUUID()',
+  tools: ['crypto']  // 使用全局配置
+});
+```
+
+**适用场景**：
+- ✅ 统一的安全策略
+- ✅ 生产环境的默认限制
+- ✅ 所有请求共享的配置
+
+#### 2. 请求级配置（执行时覆盖）
+
+在每次执行时配置，可以覆盖全局配置：
+
+```typescript
+// HTTP API 请求
+await fetch('/execute', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    code: 'export default () => crypto.randomUUID()',
+    tools: [
+      // 请求级配置：仅对本次请求生效
+      ['crypto', { 
+        subtle: true,        // 本次请求启用 subtle API
+        limit: 2048          // 本次请求使用 2KB 限制
+      }]
+    ]
+  })
+});
+
+// 或使用编程 API
+await isolate.execute({
+  code: 'export default async () => await db.users.select()',
+  tools: [
+    ['db', { 
+      hosts: ['replica.db.internal:5432']  // 本次请求允许额外主机
+    }]
+  ]
+});
+```
+
+**适用场景**：
+- ✅ 特定请求需要不同配置
+- ✅ 动态调整工具行为
+- ✅ 用户级别的个性化配置
+
+#### 3. 配置优先级
+
+请求级配置会**合并**全局配置：
+
+```typescript
+// 全局配置
+const isolate = await create({
+  config: config({
+    crypto: {
+      subtle: false,
+      limit: 1024,
+      methods: ['randomUUID']
+    }
+  })
+});
+
+// 请求级配置
+await isolate.execute({
+  code: '...',
+  tools: [
+    ['crypto', { 
+      limit: 2048  // 覆盖全局 limit
+      // subtle 和 methods 继承全局配置
+    }]
+  ]
+});
+
+// 最终生效配置：
+// {
+//   subtle: false,      // 继承全局
+//   limit: 2048,        // 请求级覆盖
+//   methods: ['randomUUID']  // 继承全局
+// }
+```
+
+#### 4. 配置对比示例
+
+```typescript
+// 场景 1: 开发环境 - 宽松配置
+const devIsolate = await create({
+  config: config({
+    crypto: {
+      subtle: true,
+      limit: 1024 * 1024,  // 1MB
+      methods: ['getRandomValues', 'randomUUID', 'subtle']
+    },
+    db: {
+      hosts: ['localhost:5432', 'dev-db:5432']
+    }
+  })
+});
+
+// 场景 2: 生产环境 - 严格配置
+const prodIsolate = await create({
+  config: config({
+    strict: true,  // 启用严格模式
+    crypto: {
+      subtle: false,       // 禁用危险 API
+      limit: 4096,         // 4KB 限制
+      methods: ['randomUUID']  // 仅允许 UUID
+    },
+    db: {
+      hosts: ['prod-primary.db.internal:5432']  // 仅主库
+    }
+  })
+});
+
+// 场景 3: 特权请求 - 请求级覆盖
+await prodIsolate.execute({
+  code: 'export default async () => { /* 管理员操作 */ }',
+  tools: [
+    ['crypto', { subtle: true }],  // 临时启用
+    ['db', { hosts: ['admin.db.internal:5432'] }]  // 临时允许管理库
+  ]
+});
+```
+
+#### 5. 最佳实践
+
+```typescript
+// ✅ 推荐：全局严格，按需放宽
+const isolate = await create({
+  config: config({
+    // 全局严格配置
+    maxSize: 50_000,
+    timeout: 3000,
+    strict: true,
+    crypto: { subtle: false, limit: 4096 }
+  })
+});
+
+// 特定请求需要更多权限
+await isolate.execute({
+  code: adminCode,
+  tools: [
+    ['crypto', { limit: 65536 }]  // 按需放宽
+  ]
+});
+
+// ❌ 避免：全局宽松，容易遗漏限制
+const badIsolate = await create({
+  config: config({
+    crypto: { subtle: true, limit: 1024 * 1024 }  // 太宽松
   })
 });
 ```
@@ -1768,8 +1960,87 @@ export function db(): Tool {
 | `input` | unknown | ❌ | undefined | 传递给入口函数的参数 |
 | `entry` | string | ❌ | "default" | 入口函数名 |
 | `timeout` | number | ❌ | 3000 | 超时时间（毫秒） |
-| `tools` | string[] | ❌ | [] | 请求的工具列表 |
+| `tools` | `(string \| [string, object])[]` | ❌ | [] | 请求的工具列表（见下文） |
 | `permissions` | object | ❌ | {} | 用户额外权限 |
+
+**工具配置说明** (`tools` 字段):
+
+工具可以使用两种格式：
+
+1. **简单格式**：字符串，使用默认配置
+   ```json
+   {
+     "tools": ["crypto", "channel", "db"]
+   }
+   ```
+
+2. **配置格式**：元组 `[工具名, 配置对象]`
+   ```json
+   {
+     "tools": [
+       ["crypto", { "subtle": false, "limit": 1024 }],
+       "channel",
+       ["db", { "hosts": ["replica.db.example.com:5432"] }]
+     ]
+   }
+   ```
+
+3. **混合格式**：可以混合使用两种格式
+   ```json
+   {
+     "tools": [
+       "crypto",
+       ["db", { "hosts": ["backup.db.internal:5432"] }]
+     ]
+   }
+   ```
+
+**各工具支持的配置**:
+
+| 工具 | 配置选项 | 说明 |
+|------|----------|------|
+| `crypto` | `subtle: boolean` | 是否启用 subtle API（默认 true） |
+|  | `limit: number` | 最大字节数（默认 65536） |
+|  | `methods: string[]` | 允许的方法白名单 |
+| `db` | `hosts: string[]` | 额外允许的数据库主机 |
+| `channel` | - | 无配置项（使用默认） |
+
+**工具配置示例**:
+
+```bash
+# 示例 1: 限制 crypto 功能
+curl -X POST http://localhost:8787/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "export default () => crypto.randomUUID()",
+    "tools": [["crypto", {
+      "subtle": false,
+      "methods": ["randomUUID"]
+    }]]
+  }'
+
+# 示例 2: 配置数据库额外主机
+curl -X POST http://localhost:8787/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "export default async () => await db.users.select()",
+    "tools": [["db", {
+      "hosts": ["replica1.db.internal:5432", "replica2.db.internal:5432"]
+    }]]
+  }'
+
+# 示例 3: 混合配置多个工具
+curl -X POST http://localhost:8787/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "export default async () => { const id = crypto.randomUUID(); await db.logs.insert({ id, message: \"test\" }); channel.emit(\"logged\", id); return id; }",
+    "tools": [
+      ["crypto", { "limit": 512 }],
+      "channel",
+      ["db", { "hosts": ["logs.db.internal:5432"] }]
+    ]
+  }'
+```
 
 **响应（成功）**:
 ```json
@@ -2976,6 +3247,114 @@ try {
 } catch (error) {
   logger.error('Isolate error', { error: error.message });
   return { ok: false, error: 'Internal error' };
+}
+```
+
+### Q: 工具配置应该在哪里设置？全局还是请求级？
+
+A: 两种方式各有适用场景：
+
+**全局配置（推荐用于默认策略）**:
+```typescript
+// 适用于：统一的安全策略、默认限制
+const isolate = await create({
+  config: config({
+    crypto: { subtle: false, limit: 4096 },
+    db: { hosts: ['prod.db.internal:5432'] }
+  })
+});
+
+// 所有请求默认使用此配置
+await isolate.execute({
+  code: '...',
+  tools: ['crypto', 'db']  // 使用全局配置
+});
+```
+
+**请求级配置（推荐用于特殊需求）**:
+```typescript
+// 适用于：特定请求需要不同配置、用户级定制
+await isolate.execute({
+  code: '...',
+  tools: [
+    ['crypto', { limit: 65536 }],  // 本次请求允许更大的数据
+    ['db', { hosts: ['replica.db.internal:5432'] }]  // 本次使用副本库
+  ]
+});
+```
+
+**最佳实践**:
+1. ✅ **全局严格，按需放宽**：全局设置严格的默认值，特殊请求通过请求级配置放宽限制
+2. ✅ **生产环境用全局配置**：确保所有请求都遵循安全策略
+3. ✅ **多租户场景用请求级配置**：不同用户/租户使用不同配置
+4. ❌ **避免全局宽松配置**：容易遗漏限制，导致安全风险
+
+### Q: 请求级配置会覆盖还是合并全局配置？
+
+A: **合并**而非覆盖。请求级配置与全局配置合并，未指定的字段继承全局配置：
+
+```typescript
+// 全局配置
+const isolate = await create({
+  config: config({
+    crypto: {
+      subtle: false,           // 全局禁用
+      limit: 1024,             // 全局 1KB 限制
+      methods: ['randomUUID']  // 全局只允许 UUID
+    }
+  })
+});
+
+// 请求级配置
+await isolate.execute({
+  tools: [
+    ['crypto', { limit: 2048 }]  // 只修改 limit
+  ]
+});
+
+// 最终生效配置（合并结果）：
+// {
+//   subtle: false,           ← 继承全局
+//   limit: 2048,             ← 请求级覆盖
+//   methods: ['randomUUID']  ← 继承全局
+// }
+```
+
+**注意事项**：
+- 数组字段（如 `methods`, `hosts`）：请求级配置会**追加**到全局配置
+- 布尔/数字字段（如 `subtle`, `limit`）：请求级配置会**覆盖**全局配置
+
+### Q: 如何查看工具实际使用的配置？
+
+A: 启用审计模式查看最终合并后的配置：
+
+```typescript
+const isolate = await create({
+  config: { audit: true }  // 启用审计
+});
+
+await isolate.execute({
+  code: '...',
+  tools: [['crypto', { limit: 2048 }]]
+});
+
+// 控制台输出：
+// [Audit] Tool config merged:
+// {
+//   "crypto": {
+//     "subtle": false,
+//     "limit": 2048,
+//     "methods": ["randomUUID"]
+//   }
+// }
+```
+
+或在代码中打印工具对象（仅开发环境）：
+```javascript
+export default function() {
+  console.log('crypto methods:', Object.keys(crypto));
+  console.log('crypto.subtle:', crypto.subtle);
+  return crypto.randomUUID();
 }
 ```
 
