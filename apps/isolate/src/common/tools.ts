@@ -35,12 +35,12 @@ export async function install(scope: Record<string, unknown>, tools: Tool[]): Pr
   }
 }
 
-export function bootstrap(
+export async function bootstrap(
   scope: Record<string, unknown>,
   items: Tool[],
   names: string[] = [],
   globals: Record<string, unknown> = {},
-): void {
+): Promise<void> {
   const index = registry(items);
   const selected: Tool[] = [];
 
@@ -51,7 +51,7 @@ export function bootstrap(
     }
   }
 
-  install(scope, selected);
+  await install(scope, selected);
 
   if (Object.keys(globals).length > 0) {
     provide(scope, globals);

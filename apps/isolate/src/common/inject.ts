@@ -55,6 +55,9 @@ export function inject(
     enumerable: true,
     configurable: false,
   });
+  
+  // Automatically track injected properties
+  track(scope, name);
 }
 
 export function provide(scope: Record<string, unknown>, data: Record<string, unknown>): void {
@@ -66,7 +69,6 @@ export function provide(scope: Record<string, unknown>, data: Record<string, unk
       throw new Error('Invalid key');
     }
     inject(scope, key, value);
-    track(scope, key);
   }
 }
 

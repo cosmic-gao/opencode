@@ -65,7 +65,7 @@ async function run(packet: Packet): Promise<Output> {
   const names = packet.tools || [];
 
   try {
-    bootstrap(scope, tools, names, packet.globals);
+    await bootstrap(scope, tools, names, packet.globals);
 
     const url = bust(packet.url);
     const mod = await import(url);

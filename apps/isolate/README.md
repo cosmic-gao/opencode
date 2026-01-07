@@ -1,6 +1,6 @@
 # Isolate - 安全沙箱代码执行引擎
 
-> 基于 Deno Worker 的隔离式 JavaScript/TypeScript 代码执行服务，支持插件化扩展
+> 基于 Deno Worker 的隔离式 JavaScript/TypeScript 代码执行服务，支持插件化扩展和细粒度权限控制
 
 ## 📋 目录
 
@@ -9,17 +9,38 @@
 - [架构设计](#架构设计)
 - [核心模块](#核心模块)
 - [插件系统](#插件系统)
+- [工具系统](#工具系统)
+- [权限管理](#权限管理)
 - [API 接口](#api-接口)
 - [使用场景](#使用场景)
-- [错误处理](#错误处理)
-- [日志系统](#日志系统)
-- [安全机制](#安全机制)
-- [使用指南](#使用指南)
-- [技术细节](#技术细节)
-- [最佳实践](#最佳实践)
-- [性能优化](#性能优化)
-- [常见问题](#常见问题)
 - [配置说明](#配置说明)
+- [最佳实践](#最佳实践)
+
+---
+
+## 项目概述
+
+### 简介
+
+Isolate 是一个基于 Deno 运行时的安全沙箱代码执行引擎。它允许在隔离的环境中安全执行用户提供的 JavaScript/TypeScript 代码，具有以下核心特性：
+
+- **微内核架构**：核心功能精简，通过插件系统扩展能力
+- **模块化设计**：按职责拆分为独立模块，易于维护和测试
+- **插件化系统**：基于 `@opencode/plugable` 通用插件系统，支持 Hook 扩展
+- **细粒度权限**：动态权限聚合，工具级权限隔离，支持严格模式验证
+- **安全隔离**：使用 Deno Worker 权限系统，完全隔离代码执行环境
+- **超时控制**：支持可配置的执行超时，防止无限循环或长时间运行
+- **日志捕获**：自动捕获 `console.log/info/warn/error` 输出
+- **HTTP 服务**：提供 RESTful API 接口，便于集成
+
+### 技术栈
+
+| 技术 | 版本 | 用途 |
+|------|------|------|
+| Deno | 最新稳定版 | 运行时环境 |
+| Hono | 4.4.11 | HTTP 框架 |
+| TypeScript | ESNext | 开发语言 |
+| @opencode/plugable | workspace | 插件系统 |
 
 ---
 
@@ -45,8 +66,9 @@ deno task dev
 deno run --allow-net --allow-read=./src src/server.ts
 ```
 
-### 第一个请求
+### 基础示例
 
+**简单计算**：
 ```bash
 curl -X POST http://localhost:8787/execute \
   -H "Content-Type: application/json" \
@@ -65,51 +87,358 @@ curl -X POST http://localhost:8787/execute \
 }
 ```
 
----
+### 工具使用示例
 
-## 项目概述
+#### 示例 1: crypto 工具 - 生成随机数和 UUID
 
-### 简介
+```bash
+curl -X POST http://localhost:8787/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "export default function() { const uuid = crypto.randomUUID(); const bytes = new Uint8Array(16); crypto.getRandomValues(bytes); return { uuid, bytes: Array.from(bytes) }; }",
+    "tools": ["crypto"]
+  }'
+```
 
-Isolate 是一个基于 Deno 运行时的安全沙箱代码执行引擎。它允许在隔离的环境中安全执行用户提供的 JavaScript/TypeScript 代码，具有以下核心特性：
+**响应**：
+```json
+{
+  "ok": true,
+  "result": {
+    "uuid": "550e8400-e29b-41d4-a716-446655440000",
+    "bytes": [123, 45, 67, 89, ...]
+  },
+  "duration": 3
+}
+```
 
-- **微内核架构**：核心功能精简，通过插件系统扩展能力
-- **插件化设计**：基于 `@opencode/plugable` 通用插件系统，支持 Hook 扩展
-- **安全隔离**：使用 Deno Worker 的 `permissions: "none"` 模式，完全隔离代码执行环境
-- **超时控制**：支持可配置的执行超时，防止无限循环或长时间运行
-- **日志捕获**：自动捕获 `console.log/info/warn/error` 输出
-- **HTTP 服务**：提供 RESTful API 接口，便于集成
+#### 示例 2: crypto 工具 - 数据哈希
 
-### 技术栈
+```bash
+curl -X POST http://localhost:8787/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "export default async function(text) { const encoder = new TextEncoder(); const data = encoder.encode(text); const hash = await crypto.subtle.digest(\"SHA-256\", data); return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, \"0\")).join(\"\"); }",
+    "input": "Hello, World!",
+    "tools": ["crypto"]
+  }'
+```
 
-| 技术 | 版本 | 用途 |
-|------|------|------|
-| Deno | 最新稳定版 | 运行时环境 |
-| Hono | 4.4.11 | HTTP 框架 |
-| TypeScript | ESNext | 开发语言 |
-| @opencode/plugable | workspace | 插件系统 |
+**响应**：
+```json
+{
+  "ok": true,
+  "result": "dffd6021bb2bd5b0af676290809ec3a53191dd81c7f70a4b28688a362182986f",
+  "duration": 5
+}
+```
 
----
+#### 示例 3: channel 工具 - 消息通信
 
-## 最新特性
+```bash
+curl -X POST http://localhost:8787/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "export default function(message) { console.log(\"Sending message:\", message); channel.emit(\"notification\", { type: \"info\", text: message, timestamp: Date.now() }); return \"Message sent successfully\"; }",
+    "input": "Task completed",
+    "tools": ["channel"]
+  }'
+```
 
-### 1. 通信总线 (Bus System)
+**响应**：
+```json
+{
+  "ok": true,
+  "result": "Message sent successfully",
+  "logs": [
+    {
+      "level": "log",
+      "message": "Sending message: Task completed",
+      "timestamp": 1704614400000
+    }
+  ],
+  "duration": 2
+}
+```
 
-实现了基于 Host-Mediated Star Topology 的 Worker 间通信机制：
+#### 示例 4: database 工具 - 查询数据
 
-- **Channel Plugin**: 运行在 Host 端的消息代理
-- **Channel Tool**: 注入到 Worker 全局的 API (`channel`)
-- **Isolation**: 基于 `postMessage` 的安全通信，无需 SharedArrayBuffer
+```bash
+# 需要先设置环境变量: export DATABASE_URL="postgresql://user:pass@localhost:5432/db"
+curl -X POST http://localhost:8787/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "export default async function() { const users = await db.users.findMany({ where: { active: true }, limit: 10 }); return { total: users.length, users: users.map(u => ({ id: u.id, name: u.name })) }; }",
+    "tools": ["database"]
+  }'
+```
 
-### 2. 工具链重构 (Toolchain)
+**响应**：
+```json
+{
+  "ok": true,
+  "result": {
+    "total": 5,
+    "users": [
+      { "id": 1, "name": "Alice" },
+      { "id": 2, "name": "Bob" }
+    ]
+  },
+  "duration": 45
+}
+```
 
-- **分离设计**: 工具实现 (`src/tools/`) 与管理逻辑 (`src/plugins/toolset.ts`) 分离
-- **安全注入**: 使用 `inject()` 辅助函数确保全局变量不可篡改 (`configurable: false`, `writable: false`)
-- **API 冻结**: 关键工具 API (如 `channel`) 被 `Object.freeze()` 锁定
+#### 示例 5: 多工具组合使用
 
-### 3. 生命周期增强
+```bash
+curl -X POST http://localhost:8787/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "export default async function(userId) { const user = await db.users.findUnique({ where: { id: userId } }); const sessionId = crypto.randomUUID(); channel.emit(\"user:login\", { userId, sessionId, timestamp: Date.now() }); return { user: user.name, sessionId }; }",
+    "input": 123,
+    "tools": ["crypto", "channel", "database"]
+  }'
+```
 
-- **onSpawn Hook**: 新增 Worker 创建后的同步钩子，允许插件在代码执行前介入 Worker 实例
+**响应**：
+```json
+{
+  "ok": true,
+  "result": {
+    "user": "Alice",
+    "sessionId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+  },
+  "duration": 38
+}
+```
+
+#### 示例 6: 自定义权限控制
+
+```bash
+curl -X POST http://localhost:8787/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "export default async function(url) { const response = await fetch(url); const data = await response.json(); return data; }",
+    "input": "https://api.github.com/repos/denoland/deno",
+    "permissions": {
+      "net": ["api.github.com"]
+    }
+  }'
+```
+
+**响应**：
+```json
+{
+  "ok": true,
+  "result": {
+    "name": "deno",
+    "stargazers_count": 95000,
+    "language": "Rust"
+  },
+  "duration": 234
+}
+```
+
+#### 示例 7: 错误处理
+
+```bash
+curl -X POST http://localhost:8787/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "export default function(x) { if (!x) throw new Error(\"Input is required\"); return x * 2; }",
+    "input": null
+  }'
+```
+
+**响应**：
+```json
+{
+  "ok": false,
+  "logs": [
+    {
+      "level": "exception",
+      "message": "Input is required",
+      "name": "Error",
+      "stack": "Error: Input is required\n    at default (data:...)",
+      "timestamp": 1704614400000
+    }
+  ],
+  "duration": 1
+}
+```
+
+#### 示例 8: 超时控制
+
+```bash
+curl -X POST http://localhost:8787/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "export default function() { while(true) {} }",
+    "timeout": 1000
+  }'
+```
+
+**响应**：
+```json
+{
+  "ok": false,
+  "logs": [
+    {
+      "level": "exception",
+      "message": "Execution timeout",
+      "name": "TimeoutError",
+      "timestamp": 1704614400000
+    }
+  ],
+  "duration": 1001
+}
+```
+
+#### 示例 9: 异步数据处理
+
+```bash
+curl -X POST http://localhost:8787/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "export default async function(items) { const results = await Promise.all(items.map(async (item) => { await new Promise(r => setTimeout(r, 10)); return item.toUpperCase(); })); return results; }",
+    "input": ["hello", "world", "deno"],
+    "timeout": 5000
+  }'
+```
+
+**响应**：
+```json
+{
+  "ok": true,
+  "result": ["HELLO", "WORLD", "DENO"],
+  "duration": 45
+}
+```
+
+#### 示例 10: 日志调试
+
+```bash
+curl -X POST http://localhost:8787/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "export default function(data) { console.log(\"Processing data:\", data); const result = data.map(x => x * 2); console.log(\"Result:\", result); return result; }",
+    "input": [1, 2, 3, 4, 5]
+  }'
+```
+
+**响应**：
+```json
+{
+  "ok": true,
+  "result": [2, 4, 6, 8, 10],
+  "logs": [
+    {
+      "level": "log",
+      "message": "Processing data: [1,2,3,4,5]",
+      "timestamp": 1704614400000
+    },
+    {
+      "level": "log",
+      "message": "Result: [2,4,6,8,10]",
+      "timestamp": 1704614400001
+    }
+  ],
+  "duration": 3
+}
+```
+
+### Node.js/TypeScript 客户端示例
+
+```typescript
+// client.ts
+interface ExecuteRequest {
+  code: string;
+  input?: unknown;
+  entry?: string;
+  timeout?: number;
+  tools?: string[];
+  permissions?: Record<string, unknown>;
+}
+
+interface ExecuteResponse {
+  ok: boolean;
+  result?: unknown;
+  logs?: Array<{
+    level: string;
+    message: string;
+    timestamp: number;
+  }>;
+  duration: number;
+}
+
+async function execute(request: ExecuteRequest): Promise<ExecuteResponse> {
+  const response = await fetch('http://localhost:8787/execute', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request)
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  }
+  
+  return response.json();
+}
+
+// 使用示例
+const result = await execute({
+  code: `
+    export default async function(userId) {
+      const user = await db.users.findUnique({ where: { id: userId } });
+      return { id: user.id, name: user.name };
+    }
+  `,
+  input: 123,
+  tools: ['database'],
+  timeout: 5000
+});
+
+console.log('Result:', result.result);
+console.log('Duration:', result.duration, 'ms');
+```
+
+### Python 客户端示例
+
+```python
+# client.py
+import requests
+import json
+
+def execute(code: str, input_data=None, tools=None, timeout=3000):
+    payload = {
+        'code': code,
+        'input': input_data,
+        'tools': tools or [],
+        'timeout': timeout
+    }
+    
+    response = requests.post(
+        'http://localhost:8787/execute',
+        headers={'Content-Type': 'application/json'},
+        json=payload
+    )
+    
+    response.raise_for_status()
+    return response.json()
+
+# 使用示例
+result = execute(
+    code='''
+        export default function(numbers) {
+            return numbers.reduce((sum, n) => sum + n, 0);
+        }
+    ''',
+    input_data=[1, 2, 3, 4, 5]
+)
+
+print(f"Result: {result['result']}")
+print(f"Duration: {result['duration']}ms")
+```
 
 ---
 
@@ -131,104 +460,999 @@ Isolate 是一个基于 Deno 运行时的安全沙箱代码执行引擎。它允
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                      Kernel (kernel.ts)                     │
-│                      执行入口 & 协调器                        │
-├──────────────────┬──────────────────────────────────────────┤
-│                  │                                          │
-│    ┌─────────────▼─────────────┐                            │
-│    │     Guard (guard.ts)      │                            │
-│    │       请求验证器           │                            │
-│    └───────────────────────────┘                            │
-│                                                             │
+│                  执行入口 & 插件管理器                        │
 └─────────────────────────────┬───────────────────────────────┘
+                              │
+                  ┌───────────┴───────────┐
+                  │   Plugin Pipeline     │
+                  ├───────────────────────┤
+                  │ 1. GuardPlugin        │ 请求验证
+                  │ 2. ToolsetPlugin      │ 工具管理
+                  │ 3. LoaderPlugin       │ 代码加载
+                  │ 4. PermissionPlugin   │ 权限聚合
+                  │ 5. SandboxPlugin      │ 执行环境
+                  │ 6. ChannelPlugin      │ 通信通道
+                  │ 7. ClusterPlugin*     │ Worker 池
+                  │ 8. LoggerPlugin       │ 日志处理
+                  └───────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                    Cluster (cluster.ts)                     │
-│                    Worker 池管理（默认）                      │
-├─────────────────────────────────────────────────────────────┤
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐   │
-│  │ Worker 池     │  │  任务调度     │  │  自动清理        │   │
-│  └──────────────┘  └──────────────┘  └──────────────────┘   │
-└─────────────────────────────┬───────────────────────────────┘
-                              │ postMessage
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
 │                     Worker (worker.ts)                      │
-│              隔离执行环境 (permissions: none)                 │
+│              隔离执行环境 (动态权限控制)                      │
 ├─────────────────────────────────────────────────────────────┤
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐   │
-│  │ 代码动态导入  │  │  日志拦截     │  │  函数调用执行    │   │
+│  │ 工具注入      │  │  日志拦截     │  │  代码执行        │   │
 │  └──────────────┘  └──────────────┘  └──────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
-         │                                        ▲
-         │              ┌─────────────┐           │
-         └──────────────│ Bridge      │───────────┘
-                        │ 通信桥接     │
-                        └─────────────┘
+```
+
+### 模块化架构
+
+```
+src/
+├─ common/              # 通用工具模块
+│  ├─ proxy.ts         # 代理封装（白名单、验证器）
+│  ├─ lazy.ts          # 延迟加载工厂
+│  ├─ inject.ts        # 全局注入和清理
+│  ├─ tools.ts         # 工具管理（注册、安装、引导）
+│  └─ utils.ts         # 辅助函数（错误、序列化）
+│
+├─ permissions/         # 权限管理模块
+│  ├─ merger.ts        # 权限合并算法
+│  ├─ parser.ts        # URL 解析（数据库主机）
+│  ├─ detector.ts      # 安全检测（通配符、主机数量）
+│  ├─ validator.ts     # 严格模式验证
+│  └─ normalizer.ts    # 权限规范化
+│
+├─ plugins/             # 插件系统
+│  ├─ guard.ts         # 请求验证
+│  ├─ toolset.ts       # 工具集管理
+│  ├─ loader.ts        # 代码加载
+│  ├─ permission.ts    # 权限聚合
+│  ├─ sandbox.ts       # 执行环境（编排层）
+│  ├─ channel.ts       # 消息通道
+│  ├─ cluster.ts       # Worker 池
+│  ├─ logger.ts        # 日志过滤
+│  └─ sandbox/         # Sandbox 内部模块
+│     ├─ spawn.ts      # Worker 创建
+│     ├─ executor.ts   # 执行逻辑
+│     └─ timeout.ts    # 超时控制
+│
+├─ tools/               # 工具实现
+│  ├─ crypto.ts        # 加密工具
+│  ├─ channel.ts       # 通信工具
+│  └─ db.ts            # 数据库工具
+│
+├─ types.ts             # 类型定义
+├─ config.ts            # 配置管理
+├─ kernel.ts            # 内核（插件编排）
+├─ worker.ts            # Worker 入口
+├─ bridge.ts            # 通信桥接
+└─ server.ts            # HTTP 服务
 ```
 
 ### 数据流
 
 ```
-Request → Guard验证 → Cluster分配Worker → Bridge发送消息 
-    → Worker执行代码 → Bridge接收结果 → Cluster回收Worker → 返回Output
+Request 
+  ↓ GuardPlugin: 验证 code、提取 tools/permissions
+  ↓ ToolsetPlugin: 验证工具名称 → ctx.tools
+  ↓ LoaderPlugin: 编码代码为 data URL → ctx.url
+  ↓ PermissionPlugin: 聚合工具权限 → ctx.permissions
+  ↓ SandboxPlugin: 创建 Worker(ctx.permissions)
+  ↓   └─ spawn: new Worker(url, { permissions })
+  ↓   └─ executor: postMessage(packet)
+  ↓   └─ timeout: Promise.race([result, timeoutError])
+  ↓ Worker: bootstrap(tools) → 执行用户代码
+  ↓ ChannelPlugin: 转发消息（如有）
+  ↓ LoggerPlugin: 过滤日志
+  ↓ Output
 ```
 
 ---
 
 ## 核心模块
 
-### 1. types.ts - 类型定义
+### 1. 通用工具 (common/)
 
-定义系统中所有核心数据结构：
+#### proxy.ts - 安全代理
+```typescript
+import { proxy } from './common/proxy.ts'
+
+// 白名单代理
+const safe = proxy(crypto, {
+  whitelist: ['getRandomValues', 'randomUUID'],
+  validator: (prop, args) => {
+    if (prop === 'getRandomValues' && args[0].byteLength > 65536) {
+      throw new Error('Array too large')
+    }
+  }
+})
+```
+
+#### lazy.ts - 延迟加载
+```typescript
+import { lazy } from './common/lazy.ts'
+
+const db = lazy(() => Database.create())
+// 使用时才初始化
+await db.users.findMany()
+```
+
+#### inject.ts - 全局注入
+```typescript
+import { inject, provide, reset } from './common/inject.ts'
+
+// 注入不可变全局变量
+inject(globalThis, 'API_KEY', 'secret')
+
+// 批量注入
+provide(globalThis, { foo: 1, bar: 2 })
+
+// 清理注入的变量
+reset(globalThis, ['crypto'])  // 保留 crypto，清理其他
+```
+
+### 2. 权限管理 (permissions/)
+
+#### merger.ts - 权限合并
+```typescript
+import { merge } from './permissions/merger.ts'
+
+const base = { env: ['A'], net: ['host1'] }
+const extra = { env: ['B'], net: ['host2'] }
+const result = merge(base, extra)
+// { env: ['A', 'B'], net: ['host1', 'host2'] }
+```
+
+#### parser.ts - URL 解析
+```typescript
+import { parse } from './permissions/parser.ts'
+
+const host = parse('postgres://user@localhost:5432/db')
+// 'localhost:5432'
+```
+
+#### detector.ts - 安全检测
+```typescript
+import { detect } from './permissions/detector.ts'
+
+const info = detect({ net: ['*', 'localhost'] })
+// { wild: true, hosts: 2, local: true }
+```
+
+#### validator.ts - 严格验证
+```typescript
+import { validate } from './permissions/validator.ts'
+
+validate(permissions, true)  // strict = true
+// 输出警告: [Strict] Wildcard permission detected
+```
+
+---
+
+## 插件系统
+
+### 插件架构
+
+基于 `@opencode/plugable` 的 Hook 系统，每个插件通过钩子进行通信：
 
 ```typescript
-// 错误结构
-type Fault = { name: string; message: string; stack?: string }
+interface IsolateHooks {
+  onValidate: AsyncHook<Request>   // 验证请求
+  onLoad: AsyncHook<Context>        // 加载上下文
+  onSpawn: SyncHook<Process>        // Worker 创建后
+  onExecute: AsyncHook<Context>     // 执行代码
+  onFormat: AsyncHook<Output>       // 格式化输出
+}
+```
 
-// 日志级别
-type LogLevel = 'log' | 'info' | 'warn' | 'error' | 'exception'
+### 插件列表
 
-// 日志条目
-type LogEntry = {
-  level: LogLevel
-  message: string
-  timestamp: number
-  name?: string    // 异常名称（仅 exception）
-  stack?: string   // 异常堆栈（仅 exception）
+| 插件 | 职责 | 依赖 |
+|------|------|------|
+| **GuardPlugin** | 请求验证和字段提取 | - |
+| **ToolsetPlugin** | 工具注册和验证 | guard |
+| **LoaderPlugin** | 代码编码为 data URL | guard |
+| **PermissionPlugin** | 权限聚合和验证 | guard, toolset |
+| **SandboxPlugin** | Worker 执行环境 | guard, loader |
+| **ChannelPlugin** | 消息通道管理 | sandbox |
+| **ClusterPlugin** | Worker 池管理（可选） | guard, loader, sandbox |
+| **LoggerPlugin** | 日志过滤和格式化 | - |
+
+### 插件示例
+
+**自定义插件**：
+```typescript
+import type { IsolatePlugin } from './types.ts'
+
+export const CustomPlugin: IsolatePlugin = {
+  name: 'custom',
+  required: ['guard'],
+  setup(api) {
+    api.onValidate.tap(async (request) => {
+      console.log('Validating:', request.code.length)
+      return request
+    })
+  }
 }
 
-// 执行输出（成功/失败）
-type Output = {
-  ok: boolean
-  result?: unknown                    // 执行结果（仅 ok=true）
-  logs?: readonly LogEntry[]          // 日志数组
-  duration: number                    // 执行耗时（毫秒）
+// 使用
+const isolate = await create({
+  plugins: [CustomPlugin]
+})
+```
+
+---
+
+## 工具系统
+
+### 工具架构
+
+工具是注入到 Worker 全局作用域的受控 API，提供安全的外部能力访问。
+
+#### 工具定义
+
+```typescript
+interface Tool {
+  name: string;                                    // 工具名称
+  permissions?: Perms | ((ctx: Context) => Perms); // 所需权限
+  config?: unknown;                                 // 配置选项
+  setup: (globals: Record<string, unknown>) => void | Promise<void>;
 }
 
-// 执行请求
-type Request = {
-  code: string            // 用户代码
-  input?: unknown         // 输入参数
-  entry?: string          // 入口函数（默认 "default"）
-  timeout?: number        // 超时时间（默认 3000ms）
+type Perms = "none" | {
+  env?: string[];
+  net?: string[];
+  read?: string[];
+  write?: string[];
+  run?: string[];
+  ffi?: string[];
+  hrtime?: boolean;
+};
+```
+
+### 内置工具
+
+#### 1. crypto - 加密工具
+
+**权限**: `"none"`  
+**API**:
+- `crypto.getRandomValues(array)` - 生成随机数
+- `crypto.randomUUID()` - 生成 UUID
+- `crypto.subtle` - Web Crypto API（可选）
+
+**配置**:
+```typescript
+{
+  crypto: {
+    subtle: true,              // 启用 subtle API
+    limit: 65536,              // 最大字节数
+    methods: ['getRandomValues', 'randomUUID']  // 白名单
+  }
+}
+```
+
+**使用示例**:
+```javascript
+export default function() {
+  const uuid = crypto.randomUUID();
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return { uuid, random: Array.from(bytes) };
+}
+```
+
+**安全限制**:
+- 操作计数限制（默认 1000 次）
+- 数组大小限制（默认 65536 字节）
+- 仅白名单方法可访问
+
+#### 2. channel - 通信工具
+
+**权限**: `"none"`  
+**API**:
+- `channel.emit(topic, data)` - 发送消息
+- `channel.on(topic, handler)` - 订阅消息
+- `channel.off(topic, handler)` - 取消订阅
+
+**使用示例**:
+```javascript
+export default function() {
+  // 发送消息到 Host
+  channel.emit('log', 'Hello from worker');
+  
+  // 监听来自其他 Worker 的消息
+  channel.on('greeting', (data) => {
+    console.log('Received:', data);
+  });
+  
+  return 'Message sent';
+}
+```
+
+**特性**:
+- 基于 `postMessage` 的安全通信
+- 消息队列（最多 100 条）
+- 微任务调度，避免阻塞
+
+#### 3. database - 数据库工具
+
+**权限**: 动态计算
+```typescript
+{
+  env: ["DATABASE_URL"],
+  net: ["parsed-host:5432"]  // 从 DATABASE_URL 解析
+}
+```
+
+**API**:
+- Drizzle ORM 完整 API
+- 自动加载 `src/schemas/` 下的表定义
+
+**配置**:
+```typescript
+{
+  db: {
+    hosts: ['backup.db.example.com:5432']  // 额外允许的主机
+  }
+}
+```
+
+**使用示例**:
+```javascript
+export default async function() {
+  // 访问 users 表（需要在 schemas/users.ts 定义）
+  const users = await db.users.findMany({
+    where: { active: true },
+    limit: 10
+  });
+  return users.length;
+}
+```
+
+**安全特性**:
+- 延迟加载（使用时才连接）
+- 主机名白名单（拒绝 `*` 通配符）
+- 自动权限解析（从 DATABASE_URL）
+
+### 工具配置化
+
+工具支持运行时配置，允许用户自定义权限和行为：
+
+```typescript
+import { create } from './kernel.ts';
+import { config } from './config.ts';
+
+const isolate = await create({
+  config: config({
+    crypto: {
+      subtle: false,           // 禁用 subtle API
+      limit: 1024,             // 限制为 1KB
+    }
+  })
+});
+```
+
+### 自定义工具
+
+**创建工具**:
+```typescript
+import type { Tool } from './types.ts';
+import { inject, proxy } from './common/index.ts';
+
+export function http(): Tool {
+  return {
+    name: 'http',
+    permissions: {
+      net: ['api.example.com']
+    },
+    setup: (globals) => {
+      const api = {
+        get: async (path: string) => {
+          const res = await fetch(`https://api.example.com${path}`);
+          return res.json();
+        }
+      };
+      Object.freeze(api);
+      inject(globals, 'http', api);
+    }
+  };
+}
+```
+
+**注册工具**:
+```typescript
+// tools/index.ts
+import { http } from './http.ts';
+
+export function build(config?: Config): Tool[] {
+  return [
+    crypto(config?.crypto),
+    channel,
+    db(),
+    http(),  // 新增工具
+  ];
+}
+```
+
+---
+
+## 权限管理
+
+### 权限系统架构
+
+Isolate 实现了细粒度的权限控制系统，确保最小权限原则。
+
+#### 权限流程
+
+```
+用户请求 {tools: ["database"], permissions: {...}}
+  ↓
+1. GuardPlugin: 提取 tools 和 permissions 字段
+  ↓
+2. ToolsetPlugin: 验证工具名称有效性
+  ↓
+3. PermissionPlugin:
+   ├─ 从工具提取权限（database.permissions()）
+   ├─ 合并用户权限（merge(user, tool)）
+   ├─ 验证安全性（strict 模式）
+   └─ 规范化（normalize）
+  ↓
+4. SandboxPlugin: 创建 Worker(ctx.permissions)
+  ↓
+5. Worker: 仅具备聚合后的最小权限
+```
+
+### 权限类型
+
+```typescript
+type Perms = "none" | {
+  env?: string[];      // 环境变量白名单
+  net?: string[];      // 网络主机白名单
+  read?: string[];     // 文件读取路径白名单
+  write?: string[];    // 文件写入路径白名单
+  run?: string[];      // 命令执行白名单
+  ffi?: string[];      // FFI 库白名单
+  hrtime?: boolean;    // 高精度时间
+};
+```
+
+### 权限合并算法
+
+**规则**:
+1. `"none"` + 任意 = 任意
+2. 数组字段：去重合并
+3. 布尔字段：覆盖
+4. 禁止 `"inherit"`（抛出错误）
+
+**示例**:
+```typescript
+const user = { env: ['A'], net: ['host1'] };
+const tool = { env: ['B'], net: ['host2'] };
+const result = merge(user, tool);
+// { env: ['A', 'B'], net: ['host1', 'host2'] }
+```
+
+### 严格模式
+
+启用严格模式后，系统会检测潜在的安全问题：
+
+```typescript
+const isolate = await create({
+  config: { strict: true }
+});
+```
+
+**检测项**:
+- ⚠️ 通配符权限（`net: ["*"]`）
+- ⚠️ 过多主机（`net` 数量 > 10）
+- ⚠️ 本地主机访问（`127.0.0.1`, `localhost`）
+
+**输出示例**:
+```
+[Strict] Wildcard permission detected
+[Strict] Too many hosts: 15
+[Strict] Local host access detected
+```
+
+### 审计模式
+
+启用审计模式记录所有权限使用：
+
+```typescript
+const isolate = await create({
+  config: { audit: true }
+});
+```
+
+**输出示例**:
+```json
+[Audit] {
+  "tools": ["database", "crypto"],
+  "permissions": {
+    "env": ["DATABASE_URL"],
+    "net": ["db.example.com:5432"]
+  },
+  "duration": 45
+}
+```
+
+### 动态权限解析
+
+工具可以根据上下文动态计算权限：
+
+```typescript
+export function db(): Tool {
+  return {
+    name: 'database',
+    permissions: () => {
+      const url = Deno.env.get('DATABASE_URL') || '';
+      const host = parse(url);  // 解析实际主机名
+      return {
+        env: ["DATABASE_URL"],
+        net: [host]  // 精确指定，拒绝通配符
+      };
+    },
+    setup: (globals) => {
+      // ...
+    }
+  };
+}
+```
+
+### 安全最佳实践
+
+1. **最小权限原则**
+   ```typescript
+   // ❌ 不推荐：通配符
+   permissions: { net: ["*"] }
+   
+   // ✅ 推荐：精确主机
+   permissions: { net: ["api.example.com"] }
+   ```
+
+2. **动态权限**
+   ```typescript
+   // ✅ 从配置解析实际主机
+   permissions: (ctx) => ({
+     net: [parseHost(ctx.config.DATABASE_URL)]
+   })
+   ```
+
+3. **启用严格模式**
+   ```typescript
+   const isolate = await create({
+     config: { strict: true, audit: true }
+   });
+   ```
+
+---
+
+## API 接口
+
+### HTTP API
+
+#### POST /execute
+
+执行用户代码并返回结果。
+
+**请求**:
+```json
+{
+  "code": "export default (x) => x * 2",
+  "input": 21,
+  "entry": "default",
+  "timeout": 5000,
+  "tools": ["crypto"],
+  "permissions": {
+    "net": ["api.example.com"]
+  }
+}
+```
+
+**字段说明**:
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `code` | string | ✅ | - | 用户代码（ES Module） |
+| `input` | unknown | ❌ | undefined | 传递给入口函数的参数 |
+| `entry` | string | ❌ | "default" | 入口函数名 |
+| `timeout` | number | ❌ | 3000 | 超时时间（毫秒） |
+| `tools` | string[] | ❌ | [] | 请求的工具列表 |
+| `permissions` | object | ❌ | {} | 用户额外权限 |
+
+**响应（成功）**:
+```json
+{
+  "ok": true,
+  "result": 42,
+  "logs": [
+    {
+      "level": "log",
+      "message": "Processing...",
+      "timestamp": 1704614400000
+    }
+  ],
+  "duration": 12
+}
+```
+
+**响应（失败）**:
+```json
+{
+  "ok": false,
+  "logs": [
+    {
+      "level": "exception",
+      "message": "x is not defined",
+      "name": "ReferenceError",
+      "stack": "...",
+      "timestamp": 1704614400000
+    }
+  ],
+  "duration": 5
+}
+```
+
+### 编程 API
+
+```typescript
+import { create } from './kernel.ts';
+import { config } from './config.ts';
+
+// 创建实例
+const isolate = await create({
+  config: config({
+    maxSize: 100_000,
+    timeout: 3_000,
+    port: 8787,
+    strict: true,
+    audit: false,
+  }),
+  useCluster: true,
+  plugins: []  // 自定义插件
+});
+
+// 执行代码
+const output = await isolate.execute({
+  code: 'export default (x) => x * 2',
+  input: 21,
+  tools: ['crypto']
+});
+
+console.log(output);
+// { ok: true, result: 42, duration: 2 }
+```
+
+---
+
+## 配置说明
+
+### Config 接口
+
+```typescript
+interface Config {
+  maxSize: number;      // 最大代码大小（字节）
+  timeout: number;      // 默认超时（毫秒）
+  port: number;         // HTTP 服务端口
+  strict?: boolean;     // 严格模式（权限验证）
+  audit?: boolean;      // 审计模式（记录日志）
+  crypto?: {            // crypto 工具配置
+    subtle?: boolean;
+    limit?: number;
+    methods?: string[];
+  };
+}
+```
+
+### 默认配置
+
+```typescript
+const DEFAULT_CONFIG: Config = {
+  maxSize: 100_000,     // 100KB
+  timeout: 3_000,       // 3秒
+  port: 8787,
+  strict: false,
+  audit: false,
+}
+```
+
+### 环境变量
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `PORT` | HTTP 服务端口 | 8787 |
+| `DATABASE_URL` | 数据库连接字符串 | - |
+| `STRICT_MODE` | 严格模式 | false |
+
+---
+
+## 使用场景
+
+### 1. 在线代码编辑器
+
+```typescript
+// 前端代码
+const response = await fetch('/execute', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    code: editor.getValue(),
+    input: { userId: 123 }
+  })
+});
+
+const result = await response.json();
+console.log('Output:', result.result);
+console.log('Logs:', result.logs);
+```
+
+### 2. Serverless 函数
+
+```typescript
+// 存储在数据库的函数
+const func = {
+  id: 'validate-email',
+  code: `
+    export default function(email) {
+      const regex = /^[^@]+@[^@]+\\.[^@]+$/;
+      return regex.test(email);
+    }
+  `
+};
+
+// 动态执行
+const output = await isolate.execute({
+  code: func.code,
+  input: 'user@example.com'
+});
+```
+
+### 3. 用户脚本运行时
+
+```typescript
+// 用户上传的数据处理脚本
+const userScript = `
+  export default function(data) {
+    return data
+      .filter(item => item.active)
+      .map(item => ({
+        id: item.id,
+        name: item.name.toUpperCase()
+      }));
+  }
+`;
+
+const output = await isolate.execute({
+  code: userScript,
+  input: rawData,
+  timeout: 10000
+});
+```
+
+### 4. 插件系统
+
+```typescript
+// 应用插件钩子
+const plugin = `
+  export default function(event) {
+    channel.emit('processed', {
+      ...event,
+      processedAt: Date.now()
+    });
+    return event;
+  }
+`;
+
+const output = await isolate.execute({
+  code: plugin,
+  input: { type: 'user.login', userId: 123 },
+  tools: ['channel']
+});
+```
+
+---
+
+## 最佳实践
+
+### 1. 代码规范
+
+**✅ 推荐**:
+```typescript
+// 使用 ES Module 导出
+export default function(input) {
+  return input * 2;
 }
 
-// 执行上下文
-type Context = {
-  config: Config                      // 配置信息
-  request: Request                    // 执行请求
-  url: string                         // Data URL
-  output: Output | null               // 执行结果
-  globals?: Record<string, unknown>   // 全局对象（用于工具注入）
+// 或命名导出
+export function process(data) {
+  return data.toUpperCase();
+}
+```
+
+**❌ 避免**:
+```javascript
+// 不要使用 CommonJS
+module.exports = function(input) {
+  return input * 2;
+}
+```
+
+### 2. 错误处理
+
+**✅ 推荐**:
+```typescript
+export default function(input) {
+  try {
+    if (!input) throw new Error('Input required');
+    return processInput(input);
+  } catch (error) {
+    console.error('Processing failed:', error.message);
+    return null;
+  }
+}
+```
+
+### 3. 异步操作
+
+**✅ 推荐**:
+```typescript
+export default async function(userId) {
+  const user = await db.users.findUnique({
+    where: { id: userId }
+  });
+  return user;
+}
+```
+
+### 4. 工具使用
+
+**✅ 推荐**:
+```typescript
+// 请求时声明需要的工具
+{
+  "code": "export default () => crypto.randomUUID()",
+  "tools": ["crypto"]
+}
+```
+
+**❌ 避免**:
+```typescript
+// 不声明工具会导致 undefined
+{
+  "code": "export default () => crypto.randomUUID()",
+  "tools": []  // crypto 将不可用
+}
+```
+
+### 5. 性能优化
+
+**✅ 推荐**:
+```typescript
+// 使用 Cluster 模式（默认启用）
+const isolate = await create({
+  useCluster: true  // Worker 池复用
+});
+
+// 合理设置超时
+{
+  "timeout": 5000  // 避免过长或过短
+}
+```
+
+---
+
+## 技术细节
+
+### Worker 隔离机制
+
+```typescript
+// Worker 创建时的权限设置
+const worker = new Worker(url, {
+  type: 'module',
+  deno: {
+    permissions: ctx.permissions  // 动态计算的权限
+  }
+});
+```
+
+### 日志拦截实现
+
+```typescript
+// worker.ts
+function capture(level: Level) {
+  return (...args: unknown[]) => {
+    const entry: Entry = {
+      level,
+      message: args.map(stringify).join(' '),
+      timestamp: Date.now()
+    };
+    self.postMessage({ type: 'log', data: entry });
+  };
 }
 
-// Worker 通信包
-type Packet = { 
-  code: string
-  input: unknown
-  entry: string
-  url: string
+console.log = capture('log');
+console.error = capture('error');
+```
+
+### 超时控制
+
+```typescript
+// sandbox/timeout.ts
+const ctrl = timeout(limit, start);
+
+const result = Promise.race([
+  wait(worker, ctrl.abort.signal),  // 正常执行
+  ctrl.promise                       // 超时 Promise
+]);
+
+// 超时时中断
+ctrl.abort.abort();
+proc.kill();
+```
+
+---
+
+## 常见问题
+
+### Q: 为什么我的代码无法访问 `fetch`？
+
+A: 需要在请求中提供相应的权限：
+```json
+{
+  "permissions": {
+    "net": ["api.example.com"]
+  }
+}
+```
+
+### Q: 如何调试用户代码？
+
+A: 查看响应中的 `logs` 字段：
+```json
+{
+  "logs": [
+    {"level": "log", "message": "Debug info"},
+    {"level": "error", "message": "Error details"}
+  ]
+}
+```
+
+### Q: Worker 池如何工作？
+
+A: ClusterPlugin 维护 2-8 个 Worker 实例，自动调度和回收：
+```
+最小: 2 个
+最大: 8 个
+空闲超时: 120 秒
+健康检查: 30 秒
+```
+
+### Q: 如何添加自定义工具？
+
+A: 参考[自定义工具](#自定义工具)章节，在 `tools/` 目录创建工具文件并注册。
+
+---
+
+## 贡献指南
+
+欢迎提交 Issue 和 Pull Request！
+
+### 开发环境
+
+```bash
+# 安装依赖
+pnpm install
+
+# 运行测试
+deno test
+
+# 启动开发服务器
+deno task dev
+```
+
+### 项目结构
 }
 ```
 
