@@ -168,7 +168,7 @@ curl -X POST http://localhost:8787/execute \
 curl -X POST http://localhost:8787/execute \
   -H "Content-Type: application/json" \
   -d '{
-    "code": "export default async function() { const users = await db.users.findMany({ where: { active: true }, limit: 10 }); return { total: users.length, users: users.map(u => ({ id: u.id, name: u.name })) }; }",
+    "code": "export default async function() { const result = await db.db.select().from(db.users).limit(10); return { total: result.length, users: result.map(u => ({ id: u.id, name: u.name })) }; }",
     "tools": ["database"]
   }'
 ```
@@ -194,7 +194,7 @@ curl -X POST http://localhost:8787/execute \
 curl -X POST http://localhost:8787/execute \
   -H "Content-Type: application/json" \
   -d '{
-    "code": "export default async function(userId) { const user = await db.users.findUnique({ where: { id: userId } }); const sessionId = crypto.randomUUID(); channel.emit(\"user:login\", { userId, sessionId, timestamp: Date.now() }); return { user: user.name, sessionId }; }",
+    "code": "export default async function(userId) { const [user] = await db.db.select().from(db.users).where(eq(db.users.id, userId)).limit(1); const sessionId = crypto.randomUUID(); channel.emit(\"user:login\", { userId, sessionId, timestamp: Date.now() }); return { user: user?.name, sessionId }; }",
     "input": 123,
     "tools": ["crypto", "channel", "database"]
   }'

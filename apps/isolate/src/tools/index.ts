@@ -4,10 +4,10 @@ import { crypto } from './crypto.ts';
 import { channel } from './channel.ts';
 import { db } from './db.ts';
 
-export function build(config?: Config, poolAPI?: PoolAPI): Tool[] {
+export function build(config?: Config, pool?: PoolAPI): Tool[] {
   return [
     crypto(config?.crypto),
     channel,
-    db(undefined, poolAPI),
+    db(undefined, pool),
   ];
 }

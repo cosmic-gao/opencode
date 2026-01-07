@@ -22,17 +22,17 @@ export const ToolsetPlugin: IsolatePlugin = {
     const { config } = api.context();
 
     // Try to get pool API if available
-    let poolAPI: PoolAPI | undefined;
+    let pool: PoolAPI | undefined;
     try {
       if (api.onPool) {
-        poolAPI = (api.onPool as APIHook<PoolAPI>).use();
+        pool = (api.onPool as APIHook<PoolAPI>).use();
       }
     } catch {
       // Pool not available, that's OK
       console.log('[ToolsetPlugin] Pool not available, db tool will not function');
     }
 
-    const tools = build(config, poolAPI);
+    const tools = build(config, pool);
     const defaults = index(tools);
 
     const factory: Toolset = {

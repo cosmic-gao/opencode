@@ -93,7 +93,9 @@ if (import.meta.main) {
   }
   
   Deno.addSignalListener('SIGINT', exit)
-  Deno.addSignalListener('SIGTERM', exit)
+  if (Deno.build.os !== 'windows') {
+    Deno.addSignalListener('SIGTERM', exit)
+  }
   
   await server.finished
 }

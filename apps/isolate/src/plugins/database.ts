@@ -1,6 +1,5 @@
 import type { IsolatePlugin } from '../types.ts';
-import type { APIHook } from '@opencode/plugable';
-import { createAPIHook } from '@opencode/plugable';
+import { type APIHook, createAPIHook } from '@opencode/plugable';
 import postgres from 'postgres';
 
 interface Entry {
@@ -153,7 +152,7 @@ class Pool {
       tasks.push(
         entry.client.end().catch((error) => {
           console.error(`[Pool] Dispose failed for ${mask(url)}:`, error);
-        })
+        }),
       );
     }
 

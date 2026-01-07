@@ -48,18 +48,54 @@ export async function scan(): Promise<Schema> {
   return schemas;
 }
 
+class Query<T extends AnyPgTable> {
+  constructor(
+    private client: PostgresJsDatabase<Record<string, never>>,
+    private table: T,
+  ) {}
+
+  select() {
+    return this.client.select().from(this.table as AnyPgTable);
+  }
+
+  insert(values: unknown) {
+    return this.client.insert(this.table as AnyPgTable).values(values as never);
+  }
+
+  update(values: unknown) {
+    return this.client.update(this.table as AnyPgTable).set(values as never);
+  }
+
+  delete() {
+    return this.client.delete(this.table as AnyPgTable);
+  }
+}
+
+function wrapTables<T extends Schema>(
+  client: Client<T>,
+  schemas: T,
+): Record<string, Query<AnyPgTable>> {
+  const wrapped: Record<string, Query<AnyPgTable>> = {};
+
+  for (const [name, table] of Object.entries(schemas)) {
+    wrapped[name] = new Query(client as unknown as PostgresJsDatabase<Record<string, never>>, table);
+  }
+
+  return wrapped;
+}
+
 function extend<T extends Schema>(
   target: Store<T>,
-  schemas: T,
-): Store<T> & T {
+  tables: Record<string, Query<AnyPgTable>>,
+): Store<T> & Record<string, Query<AnyPgTable>> {
   return new Proxy(target, {
     get: (obj, prop: string | symbol) => {
       if (typeof prop === 'symbol' || prop in obj) {
         return Reflect.get(obj, prop);
       }
-      return schemas[prop as keyof T];
+      return tables[prop as string];
     },
-  }) as unknown as Store<T> & T;
+  }) as unknown as Store<T> & Record<string, Query<AnyPgTable>>;
 }
 
 class Store<T extends Schema> {
@@ -78,7 +114,7 @@ class Store<T extends Schema> {
     this.pool.release(this.url);
   }
 
-  static async create(url: string, pool: PoolAPI): Promise<Store<Schema> & Schema> {
+  static async create(url: string, pool: PoolAPI): Promise<Store<Schema> & Record<string, Query<AnyPgTable>>> {
     const schemas = await scan();
 
     if (!url) {
@@ -88,16 +124,17 @@ class Store<T extends Schema> {
     const client = pool.get(url);
     const instance = drizzle(client, { schema: schemas });
     const store = new Store(instance, schemas, url, pool);
+    const tables = wrapTables(instance, schemas);
 
-    return extend(store, schemas);
+    return extend(store, tables);
   }
 }
 
-export function db(config?: Config, poolAPI?: PoolAPI): Tool {
-  let instance: (Store<Schema> & Schema) | null = null;
+export function db(config?: Config, pool?: PoolAPI): Tool {
+  let instance: (Store<Schema> & Record<string, Query<AnyPgTable>>) | null = null;
 
   return {
-    name: 'database',
+    name: 'db',
     permissions: (): Perms => {
       const url = Deno.env.get('DATABASE_URL') || '';
       const host = parse(url);
@@ -109,7 +146,7 @@ export function db(config?: Config, poolAPI?: PoolAPI): Tool {
     },
     config,
     setup: async (scope: Record<string, unknown>): Promise<void> => {
-      if (!poolAPI) {
+      if (!pool) {
         throw new Error('PoolAPI not available. Ensure PoolPlugin is registered.');
       }
 
@@ -118,7 +155,7 @@ export function db(config?: Config, poolAPI?: PoolAPI): Tool {
         throw new Error('DATABASE_URL environment variable is required');
       }
 
-      instance = await Store.create(url, poolAPI);
+      instance = await Store.create(url, pool);
       inject(scope, 'db', instance);
     },
     teardown: (): void => {
