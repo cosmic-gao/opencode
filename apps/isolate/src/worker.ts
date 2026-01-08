@@ -1,10 +1,32 @@
 import type { Entry, Fault, Level, Output, Packet } from './types.ts';
 import { build } from './tools/index.ts';
-import { mount, bust, fault, reset, stringify, unmount, index, freeze, resolve } from './common/index.ts';
+import { mount, bust, fault, reset, stringify, unmount, index, resolve } from './common/index.ts';
 import { Pool } from './pool.ts';
 import type { PoolAPI } from './pool.ts';
+import { harden } from './hardening/conductor.ts';
 
-freeze();
+// 🔒 微内核加固：使用新的分层加固系统
+const hardenReport = harden({
+  prototypes: true,
+  builtins: true,
+  globals: true,
+  runtime: true,
+  verify: true,
+  strict: true,
+});
+
+// 验证加固是否成功（失败则终止 Worker）
+if (!hardenReport.success) {
+  const error = hardenReport.error?.message || 'Unknown hardening error';
+  self.postMessage({
+    type: 'result',
+    data: {
+      error: `Worker initialization failed: ${error}`,
+      success: false,
+    },
+  });
+  throw new Error(`Hardening failed: ${error}`);
+}
 
 const tools = build();
 
