@@ -1,4 +1,4 @@
-import type { IsolatePlugin, Request, Output, Process, Runner, Factory } from '../types.ts'
+import type { IsolatePlugin, Request, Output, Process, Runner, Factory, ToolContext } from '../types.ts'
 import type { APIHook } from '@opencode/plugable'
 import { nanoid } from 'nanoid'
 
@@ -181,7 +181,7 @@ class Cluster {
     url: string,
     timeout: number,
     globals?: Record<string, unknown>,
-    tools?: string[],
+    context?: ToolContext,
     permissions?: Deno.PermissionOptions
   ): Promise<Output> {
     const worker = await this.acquire(spawn, permissions)
@@ -204,7 +204,7 @@ class Cluster {
     worker.executor = runner(worker.handle, timeout)
 
     try {
-      const out = await worker.executor.run(request, url, globals, tools)
+      const out = await worker.executor.run(request, url, globals, context)
       
       // 更新活跃时间
       worker.lastActive = Date.now()
@@ -287,7 +287,7 @@ export const ClusterPlugin: IsolatePlugin = {
         url,
         limit,
         ctx.globals,
-        ctx.tools,
+        ctx.context,
         ctx.permissions
       )
 
