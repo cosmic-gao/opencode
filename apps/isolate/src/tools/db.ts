@@ -1,12 +1,14 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { AnyPgTable } from 'drizzle-orm/pg-core';
-import type { Perms, Tool, InternalAPI } from '../types.ts';
+import type { Perms, Tool, InternalAPI, DatabaseToolConfig } from '../types.ts';
 import { inject } from '../common/index.ts';
 import type { PoolAPI } from '../pool.ts';
+import { Auditor } from './auditor.ts';
 
 export interface Config {
   hosts?: string[];
+  audit?: DatabaseToolConfig;
 }
 
 type Schema = Record<string, AnyPgTable>;
@@ -55,21 +57,27 @@ class Query<T extends AnyPgTable> {
   constructor(
     private client: PostgresJsDatabase<Record<string, never>>,
     private table: T,
+    private name: string,
+    private auditor?: Auditor,
   ) {}
 
   select() {
+    this.auditor?.record('select', this.name);
     return this.client.select().from(this.table as AnyPgTable);
   }
 
   insert(values: unknown) {
+    this.auditor?.record('insert', this.name);
     return this.client.insert(this.table as AnyPgTable).values(values as never);
   }
 
   update(values: unknown) {
+    this.auditor?.record('update', this.name);
     return this.client.update(this.table as AnyPgTable).set(values as never);
   }
 
   delete() {
+    this.auditor?.record('delete', this.name);
     return this.client.delete(this.table as AnyPgTable);
   }
 }
@@ -77,6 +85,7 @@ class Query<T extends AnyPgTable> {
 function wrapTables<T extends Schema>(
   client: Client<T>,
   schemas: T,
+  auditor?: Auditor,
 ): Record<string, Query<AnyPgTable>> {
   const wrapped: Record<string, Query<AnyPgTable>> = {};
 
@@ -84,6 +93,8 @@ function wrapTables<T extends Schema>(
     wrapped[name] = new Query(
       client as unknown as PostgresJsDatabase<Record<string, never>>,
       table,
+      name,
+      auditor,
     );
   }
 
@@ -112,9 +123,8 @@ class Store<T extends Schema> {
     private pool: PoolAPI,
   ) {}
 
-  get db(): Client<T> {
-    return this.client;
-  }
+  // Removed: get db() getter - prevents direct access to Drizzle client
+  // Users must use table-level methods like db.users.select()
 
   close(): void {
     this.pool.release(this.url);
@@ -123,6 +133,7 @@ class Store<T extends Schema> {
   static async create(
     url: string,
     pool: PoolAPI,
+    auditor?: Auditor,
   ): Promise<Store<Schema> & Record<string, Query<AnyPgTable>>> {
     const schemas = await scan();
 
@@ -133,7 +144,7 @@ class Store<T extends Schema> {
     const client = pool.get(url);
     const instance = drizzle(client, { schema: schemas });
     const store = new Store(instance, schemas, url, pool);
-    const tables = wrapTables(instance, schemas);
+    const tables = wrapTables(instance, schemas, auditor);
 
     return extend(store, tables);
   }
@@ -141,6 +152,7 @@ class Store<T extends Schema> {
 
 export function db(config?: Config): Tool {
   let instance: (Store<Schema> & Record<string, Query<AnyPgTable>>) | null = null;
+  let auditor: Auditor | undefined;
 
   return {
     name: 'db',
@@ -149,7 +161,7 @@ export function db(config?: Config): Tool {
       const hosts = ['localhost', '127.0.0.1', '0.0.0.0'];
   
       return {
-        env: true,
+        env: ['DATABASE_URL'],
         net: [...hosts, ...extra],
         read: true,
       };
@@ -166,7 +178,15 @@ export function db(config?: Config): Tool {
         throw new Error('DATABASE_URL environment variable is required');
       }
 
-      instance = await Store.create(url, pool as PoolAPI);
+      // Initialize auditor if enabled
+      if (config?.audit?.enableAudit) {
+        auditor = new Auditor({
+          enabled: true,
+          console: config.audit.logToConsole,
+        });
+      }
+
+      instance = await Store.create(url, pool as PoolAPI, auditor);
       inject(scope, 'db', instance);
     },
     teardown: (): void => {
@@ -174,6 +194,7 @@ export function db(config?: Config): Tool {
         instance.close();
         instance = null;
       }
+      auditor = undefined;
     },
   };
 }

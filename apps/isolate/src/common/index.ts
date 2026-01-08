@@ -6,6 +6,8 @@ export { fault, bust, stringify } from './utils.ts';
 export { freeze, isFrozen, verifyFreeze } from './freeze.ts';
 export { parse, extract } from './parser.ts';
 export { build, resolve } from './builder.ts';
+export * as matcher from './matcher.ts';
 
 export type { ProxyOptions } from './proxy.ts';
 export type { ParsedSpec } from './parser.ts';
+export type { Pattern } from './matcher.ts';

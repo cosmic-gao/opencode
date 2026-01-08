@@ -50,7 +50,9 @@ export const PermissionPlugin: IsolatePlugin = {
       validate(final, ctx.config.strict || false);
       
       const permissions = normalize(final);
-      const variables = resolve(permissions);
+      // Apply environment variable whitelist from config
+      const whitelist = ctx.config.envWhitelist || ['PUBLIC_*'];
+      const variables = resolve(permissions, whitelist);
       
       const updated: Context = {
         ...ctx,

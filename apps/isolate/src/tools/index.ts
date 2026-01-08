@@ -7,6 +7,6 @@ export function build(config?: Config): Tool[] {
   return [
     crypto(config?.crypto),
     channel,
-    db(),
+    db({ audit: config?.database }),
   ];
 }

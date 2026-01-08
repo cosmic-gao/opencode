@@ -85,12 +85,19 @@ export interface Config {
   readonly crypto?: CryptoToolConfig;
   readonly strict?: boolean;
   readonly audit?: boolean;
+  readonly envWhitelist?: string[];
+  readonly database?: DatabaseToolConfig;
 }
 
 export interface CryptoToolConfig {
   subtle?: boolean;
   limit?: number;
   methods?: string[];
+}
+
+export interface DatabaseToolConfig {
+  enableAudit?: boolean;
+  logToConsole?: boolean;
 }
 
 export interface Context {

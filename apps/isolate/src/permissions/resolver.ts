@@ -1,4 +1,9 @@
-export function resolve(permissions: Deno.PermissionOptions): Record<string, unknown> {
+import * as whitelist from './whitelist.ts';
+
+export function resolve(
+  permissions: Deno.PermissionOptions,
+  patterns: string[] = ['PUBLIC_*'],
+): Record<string, unknown> {
   const variables: Record<string, unknown> = {};
 
   if (permissions === "none" || typeof permissions !== "object") {
@@ -8,17 +13,18 @@ export function resolve(permissions: Deno.PermissionOptions): Record<string, unk
   const environment = permissions.env;
   
   if (environment === true) {
-    for (const [key, value] of Object.entries(Deno.env.toObject())) {
-      variables[key] = value;
-    }
-    return variables;
+    // Apply whitelist to all environment variables
+    const all = Deno.env.toObject();
+    return whitelist.filter(all, patterns);
   }
   
   if (!Array.isArray(environment)) {
     return variables;
   }
 
-  for (const key of environment) {
+  // Apply whitelist to requested keys
+  const allowed = whitelist.keys(environment, patterns);
+  for (const key of allowed) {
     const value = Deno.env.get(key);
     if (value !== undefined) {
       variables[key] = value;
