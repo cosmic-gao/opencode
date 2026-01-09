@@ -1,6 +1,4 @@
-import { Proxy } from './proxy.ts';
-import { drizzle } from 'drizzle-orm/postgres-js';
-import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import { drizzle, type PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { AnyPgTable } from 'drizzle-orm/pg-core';
 import type postgres from 'postgres';
 import type { Auditor } from './auditor.ts';
@@ -29,7 +27,7 @@ async function scan(): Promise<Schema> {
     if (path.startsWith('/') && path[2] === ':') {
       path = path.slice(1);
     }
-    
+
     for await (const entry of Deno.readDir(path)) {
       if (valid(entry)) {
         const module = await load(entry.name);
@@ -49,113 +47,35 @@ async function scan(): Promise<Schema> {
   return schemas;
 }
 
-class Client {
-  public types: Record<string | number, unknown>;
-  public parsers: Record<string, (value: unknown) => unknown>;
-  public options: Record<string, unknown>;
-  [key: string]: unknown;
-
-  constructor(private url: string, private proxy: Proxy) {
-    // Create base objects
-    const types: Record<string | number, unknown> = {};
-    const parsers: Record<string, (value: unknown) => unknown> = {};
-    
-    this.types = types;
-    this.parsers = parsers;
-    this.options = {
-      max: 10,
-      idle_timeout: 120,
-    };
-    
-    // Return a proxy to handle any additional property access
-    return new globalThis.Proxy(this, {
-      get: (target, prop) => {
-        if (prop === 'types') return types;
-        if (prop === 'parsers') return parsers;
-        return Reflect.get(target, prop);
-      },
-      set: (target, prop, value) => {
-        if (prop === 'types' || prop === 'parsers') {
-          return Reflect.set(target, prop, value);
-        }
-        return Reflect.set(target, prop, value);
-      },
-    });
-  }
-
-  async unsafe(sql: string, params?: unknown[]): Promise<unknown> {
-    return await this.proxy.query(this.url, sql, params);
-  }
-
-  async begin(options?: unknown): Promise<Transaction> {
-    const txId = await this.proxy.begin(this.url, options);
-    return new Transaction(txId, this.proxy);
-  }
-}
-
-class Transaction {
-  public types: Record<string | number, unknown>;
-  public parsers: Record<string, (value: unknown) => unknown>;
-  [key: string]: unknown;
-
-  constructor(private txId: string, private proxy: Proxy) {
-    const types: Record<string | number, unknown> = {};
-    const parsers: Record<string, (value: unknown) => unknown> = {};
-    
-    this.types = types;
-    this.parsers = parsers;
-    
-    return new globalThis.Proxy(this, {
-      get: (target, prop) => {
-        if (prop === 'types') return types;
-        if (prop === 'parsers') return parsers;
-        return Reflect.get(target, prop);
-      },
-      set: (target, prop, value) => {
-        return Reflect.set(target, prop, value);
-      },
-    });
-  }
-
-  async unsafe(sql: string, params?: unknown[]): Promise<unknown> {
-    return await this.proxy.txQuery(this.txId, sql, params);
-  }
-
-  async commit(): Promise<void> {
-    await this.proxy.txCommit(this.txId);
-  }
-
-  async rollback(): Promise<void> {
-    await this.proxy.txRollback(this.txId);
-  }
-}
-
 export class Store {
   private dbInstance: PostgresJsDatabase<Schema> | null = null;
   private schemas: Schema = {};
-  
+
   constructor(
-    private url: string,
-    private proxy: Proxy,
     private auditor?: Auditor,
+    private dbClient?: postgres.Sql,
   ) {}
 
   async init(): Promise<Store & Record<string, TableOperations>> {
     this.schemas = await scan();
-    const client = new Client(this.url, this.proxy) as unknown as postgres.Sql;
+
+    const client = this.dbClient;
+    if (!client) {
+      throw new Error('Database client required for drizzle initialization');
+    }
+
     this.dbInstance = drizzle(client, { schema: this.schemas });
-    
     return new globalThis.Proxy(this as unknown as Store & Record<string, TableOperations>, {
       get: (target, prop: string | symbol) => {
         if (typeof prop === 'symbol' || prop in target) {
           return Reflect.get(target, prop);
         }
-        
+
         const table = this.schemas[prop];
         if (!table) {
           return undefined;
         }
-        
+
         return {
           select: () => {
             this.auditor?.record('select', prop);
@@ -168,14 +88,14 @@ export class Store {
           update: (values: unknown) => {
             this.auditor?.record('update', prop);
             return {
-              where: (condition: unknown) => 
+              where: (condition: unknown) =>
                 this.dbInstance!.update(table).set(values as never).where(condition as never),
             };
           },
           delete: () => {
             this.auditor?.record('delete', prop);
             return {
-              where: (condition: unknown) => 
+              where: (condition: unknown) =>
                 this.dbInstance!.delete(table).where(condition as never),
             };
           },
@@ -185,23 +105,26 @@ export class Store {
   }
 
   async query(sql: string, params?: unknown[]): Promise<unknown> {
-    return await this.proxy.query(this.url, sql, params);
+    if (!this.dbClient) {
+      throw new Error('Database client not initialized');
+    }
+
+    return await this.dbClient.unsafe(sql as never, params as never[]);
   }
 
   async close(): Promise<void> {
-    await this.proxy.release(this.url);
+    if (
+      this.dbClient && typeof (this.dbClient as { end?: () => Promise<void> }).end === 'function'
+    ) {
+      await (this.dbClient as { end: () => Promise<void> }).end();
+    }
   }
 
   static async create(
-    url: string, 
-    proxy: Proxy, 
-    auditor?: Auditor
+    client: postgres.Sql,
+    auditor?: Auditor,
   ): Promise<Store & Record<string, TableOperations>> {
-    if (!url) {
-      throw new Error('DATABASE_URL required');
-    }
-
-    const store = new Store(url, proxy, auditor);
+    const store = new Store(auditor, client);
     return await store.init();
   }
 }

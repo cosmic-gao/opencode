@@ -18,7 +18,7 @@ const DEFAULT_OPTIONS: postgres.Options<Record<string, never>> = {
   max: 10,
   idle_timeout: 120,
   connect_timeout: 10,
-  max_lifetime: 3600,
+  max_lifetime: 3600
 };
 
 function mask(url: string): string {
@@ -75,7 +75,7 @@ export class Pool {
       if (this.entries.size >= this.limit) {
         this.evict();
       }
-
+     
       const client = postgres(url, this.options);
       entry = { client, refs: 0, used: Date.now(), health: 'ok' };
       this.entries.set(url, entry);

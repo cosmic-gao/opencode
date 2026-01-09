@@ -12,7 +12,6 @@ export function spawn(permissions?: Deno.PermissionOptions): Process {
     },
   } as WorkerOptions;
 
-  console.log(options,"options")
   const worker = new Worker(url, options);
 
   const kill = () => worker.terminate();

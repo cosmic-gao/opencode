@@ -55,9 +55,13 @@ export const PermissionPlugin: IsolatePlugin = {
       const envList = typeof permissions === 'object' && permissions !== null 
         ? permissions.env 
         : undefined;
-      const allowed = Array.isArray(envList)
-        ? [...whitelist, ...envList]
-        : whitelist;
+
+      // env: true 允许所有环境变量（匹配 *），否则在白名单基础上追加指定变量
+      const allowed = envList === true
+        ? ['*']
+        : Array.isArray(envList)
+          ? [...whitelist, ...envList]
+          : whitelist;
       
       const variables = resolve(permissions, allowed);
       

@@ -5,6 +5,7 @@
     "npm:errorish@2.0.0": "2.0.0",
     "npm:hono@4.4.11": "4.4.11",
     "npm:nanoid@5.1.6": "5.1.6",
+    "npm:postgres@3": "3.4.7",
     "npm:postgres@3.4.7": "3.4.7"
   },
   "npm": {
