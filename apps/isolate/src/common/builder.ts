@@ -1,33 +1,36 @@
 import type { Tool } from '../types.ts';
-import { crypto, type CryptoConfig } from '../tools/crypto.ts';
-import { channel } from '../tools/channel.ts';
-import { db, type Config as DbConfig } from '../tools/db.ts';
+import { registry } from '../tools/index.ts';
 
-type Builder = (config?: unknown) => Tool;
-
-const registry: Record<string, Builder> = {
-  crypto: (config?: unknown) => crypto(config as CryptoConfig),
-  channel: () => channel,
-  db: (config?: unknown) => db(config as DbConfig),
-};
-
-export function build(name: string, config?: unknown): Tool | undefined {
+export function create(name: string, config?: unknown): Tool | undefined {
   const builder = registry[name];
   return builder?.(config);
+}
+
+export function index(configs?: Record<string, unknown>): Record<string, Tool> {
+  const tools: Record<string, Tool> = {};
+
+  for (const name in registry) {
+    const tool = create(name, configs?.[name]);
+    if (tool) {
+      tools[name] = tool;
+    }
+  }
+
+  return tools;
 }
 
 export function resolve(
   names: string[],
   defaults: Record<string, Tool>,
-  configs?: Map<string, unknown>
+  configs?: Map<string, unknown>,
 ): Tool[] {
   if (!configs || configs.size === 0) {
-    return names.map(name => defaults[name]).filter(Boolean);
+    return names.map((name) => defaults[name]).filter(Boolean);
   }
 
-  return names.map(name => {
+  return names.map((name) => {
     if (configs.has(name)) {
-      return build(name, configs.get(name)) ?? defaults[name];
+      return create(name, configs.get(name)) ?? defaults[name];
     }
     return defaults[name];
   }).filter(Boolean);

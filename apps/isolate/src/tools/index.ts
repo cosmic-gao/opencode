@@ -1,12 +1,12 @@
-import type { Tool, Config } from '../types.ts';
-import { crypto } from './crypto.ts';
+import type { Tool } from '../types.ts';
+import { crypto, type CryptoConfig } from './crypto.ts';
 import { channel } from './channel.ts';
-import { db } from './db.ts';
+import { type Config as DbConfig, database } from './database/index.ts';
 
-export function build(config?: Config): Tool[] {
-  return [
-    crypto(config?.crypto),
-    channel,
-    db({ audit: config?.database }),
-  ];
-}
+type Builder = (config?: unknown) => Tool;
+
+export const registry: Record<string, Builder> = {
+  crypto: (config?: unknown) => crypto(config as CryptoConfig),
+  channel: () => channel,
+  database: (config?: unknown) => database(config as DbConfig),
+};

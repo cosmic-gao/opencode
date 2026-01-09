@@ -1,7 +1,7 @@
 import type { IsolatePlugin, Context, Toolset } from '../types.ts';
 import { type APIHook, createAPIHook } from '@opencode/plugable';
 import { merge, validate, normalize, resolve } from '../permissions/index.ts';
-import { build } from '../common/builder.ts';
+import { create } from '../common/builder.ts';
 
 export const PermissionPlugin: IsolatePlugin = {
   name: 'opencode:permission',
@@ -27,7 +27,7 @@ export const PermissionPlugin: IsolatePlugin = {
         
         for (const name of names) {
           const item = configs.has(name) 
-            ? (build(name, configs.get(name)) ?? registry[name])
+            ? (create(name, configs.get(name)) ?? registry[name])
             : registry[name];
           
           if (!item?.permissions) continue;
@@ -50,9 +50,16 @@ export const PermissionPlugin: IsolatePlugin = {
       validate(final, ctx.config.strict || false);
       
       const permissions = normalize(final);
-      // Apply environment variable whitelist from config
+      
       const whitelist = ctx.config.envWhitelist || ['PUBLIC_*'];
-      const variables = resolve(permissions, whitelist);
+      const envList = typeof permissions === 'object' && permissions !== null 
+        ? permissions.env 
+        : undefined;
+      const allowed = Array.isArray(envList)
+        ? [...whitelist, ...envList]
+        : whitelist;
+      
+      const variables = resolve(permissions, allowed);
       
       const updated: Context = {
         ...ctx,

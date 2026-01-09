@@ -1,26 +1,16 @@
 import type { IsolatePlugin } from '../types.ts';
-import { type APIHook, createAPIHook } from '@opencode/plugable';
 import { Pool } from '../pool.ts';
-import type { PoolAPI } from '../pool.ts';
+import { Host } from '../common/rpc.ts';
 
 export const DatabasePlugin: IsolatePlugin = {
   name: 'opencode:database',
   pre: [],
   post: [],
   required: [],
-  usePlugins: [],
-  registryHook: {
-    onPool: createAPIHook<PoolAPI>(),
-  },
 
   setup(api) {
-    if (!api.onPool) {
-      throw new Error('onPool not registered');
-    }
-
     const { config } = api.context();
 
-    // Create pool with configuration
     const pool = new Pool({
       limit: 50,
       options: {
@@ -33,29 +23,49 @@ export const DatabasePlugin: IsolatePlugin = {
       idleTimeout: 120_000,
     });
 
-    // Initialize pool
     pool.init();
 
-    // Provide API
-    const poolAPI: PoolAPI = {
-      get: (url: string) => pool.get(url),
-      release: (url: string) => pool.release(url),
-      stats: () => pool.stats(),
-      size: () => pool.size,
-      healthCheck: () => pool.healthCheck(),
-    };
+    const host = new Host();
 
-    (api.onPool as APIHook<PoolAPI>).provide(poolAPI);
+    host.register('pool:get', (args) => {
+      const { url } = args as { url: string };
+      pool.get(url);
+      return { connected: true };
+    });
 
-    // Health check on format (for monitoring)
+    host.register('pool:query', async (args) => {
+      const { url, sql, params } = args as { url: string; sql: string; params?: unknown[] };
+      const client = pool.get(url);
+      
+      try {
+        const result = await client.unsafe(sql, params as never[]);
+        return result;
+      } finally {
+        pool.release(url);
+      }
+    });
+
+    host.register('pool:release', (args) => {
+      const { url } = args as { url: string };
+      pool.release(url);
+      return { released: true };
+    });
+
+    host.register('pool:stats', () => {
+      return pool.stats();
+    });
+
+    api.onSpawn.tap((process) => {
+      host.listen(process.worker);
+      return process;
+    });
+
     api.onFormat.tap((output) => {
-      pool.healthCheck();
-
       if (config.audit) {
         const stats = pool.stats();
-        console.log('[Pool] Stats:', {
+        console.log('[Pool]', {
           size: pool.size,
-          connections: stats,
+          connections: Object.keys(stats).length,
         });
       }
 

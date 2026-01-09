@@ -1,6 +1,6 @@
 import { createManager, createAsyncHook, createSyncHook } from '@opencode/plugable'
 import type { IsolateHooks, IsolatePlugin, Context, Config, Output, Request, Process } from './types.ts'
-import { GuardPlugin, LoaderPlugin, PermissionPlugin, SandboxPlugin, ClusterPlugin, LoggerPlugin, ToolsetPlugin, ChannelPlugin, DatabasePlugin } from './plugins/index.ts'
+import { GuardPlugin, LoaderPlugin, PermissionPlugin, SandboxPlugin, LoggerPlugin, ToolsetPlugin, ChannelPlugin, DatabasePlugin } from './plugins/index.ts'
 
 const DEFAULT: Config = {
   maxSize: 100_000,
@@ -30,7 +30,6 @@ function context(config: Config, request: Request): Context {
 export interface IsolateConfig {
   config?: Partial<Config>
   plugins?: IsolatePlugin[]
-  useCluster?: boolean
 }
 
 export interface Isolate {
@@ -41,7 +40,6 @@ export interface Isolate {
 
 export async function create(options: IsolateConfig = {}): Promise<Isolate> {
   const config: Config = { ...DEFAULT, ...options.config }
-  const cluster = options.useCluster ?? true
 
   const manager = createManager<IsolateHooks, Context>({
     hooks: wire(),
@@ -56,7 +54,6 @@ export async function create(options: IsolateConfig = {}): Promise<Isolate> {
     PermissionPlugin,
     SandboxPlugin,
     ChannelPlugin,
-    ...(cluster ? [ClusterPlugin] : []),
     LoggerPlugin,
   ])
 
@@ -78,7 +75,7 @@ export async function create(options: IsolateConfig = {}): Promise<Isolate> {
       
       if (config.audit) {
         console.log('[Audit]', {
-          tools: ctx.tools,
+          tools: ctx.context?.names,
           permissions: ctx.permissions,
           duration: ctx.output?.duration,
         })

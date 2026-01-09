@@ -1,7 +1,7 @@
 import type { Context, IsolatePlugin, Toolset } from '../types.ts';
 import { type APIHook, createAPIHook } from '@opencode/plugable';
-import { build } from '../tools/index.ts';
-import { index, setup, extract } from '../common/index.ts';
+import { index } from '../common/builder.ts';
+import { setup, extract } from '../common/index.ts';
 
 export const ToolsetPlugin: IsolatePlugin = {
   name: 'opencode:tools',
@@ -20,11 +20,15 @@ export const ToolsetPlugin: IsolatePlugin = {
     
     const { config } = api.context();
 
-    const tools = build(config);
-    const defaults = index(tools);
+    const options: Record<string, unknown> = {
+      crypto: config.crypto,
+      database: config.database,
+    };
+
+    const defaults = index(options);
 
     const factory: Toolset = {
-      tools: () => tools,
+      tools: () => Object.values(defaults),
       registry: () => defaults,
       setup,
     };

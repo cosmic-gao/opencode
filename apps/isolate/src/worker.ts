@@ -1,56 +1,6 @@
 import type { Entry, Fault, Level, Output, Packet } from './types.ts';
-import { build } from './tools/index.ts';
-import { mount, bust, fault, reset, stringify, unmount, index, resolve } from './common/index.ts';
-import { Pool } from './pool.ts';
-import type { PoolAPI } from './pool.ts';
-import { harden } from './hardening/conductor.ts';
-
-// 🔒 微内核加固：使用新的分层加固系统
-const hardenReport = harden({
-  prototypes: true,
-  builtins: true,
-  globals: true,
-  runtime: true,
-  verify: true,
-  strict: true,
-});
-
-// 验证加固是否成功（失败则终止 Worker）
-if (!hardenReport.success) {
-  const error = hardenReport.error?.message || 'Unknown hardening error';
-  self.postMessage({
-    type: 'result',
-    data: {
-      error: `Worker initialization failed: ${error}`,
-      success: false,
-    },
-  });
-  throw new Error(`Hardening failed: ${error}`);
-}
-
-const tools = build();
-
-const pool = new Pool({
-  limit: 50,
-  options: {
-    max: 10,
-    idle_timeout: 120,
-    connect_timeout: 10,
-    max_lifetime: 3600,
-  },
-  cleanupInterval: 60_000,
-  idleTimeout: 120_000,
-});
-
-pool.init();
-
-const poolAPI: PoolAPI = {
-  get: (url: string) => pool.get(url),
-  release: (url: string) => pool.release(url),
-  stats: () => pool.stats(),
-  size: () => pool.size,
-  healthCheck: () => pool.healthCheck(),
-};
+import { mount, bust, fault, reset, stringify, unmount, resolve } from './common/index.ts';
+import { index } from './common/builder.ts';
 
 function capture(level: Level) {
   return (...args: unknown[]) => {
@@ -111,12 +61,15 @@ async function run(packet: Packet): Promise<Output> {
   const start = performance.now();
   const scope = globalThis as Record<string, unknown>;
   const names = packet.context?.names || [];
-  const registry = index(tools);
-  const selected = resolve(names, registry, packet.context?.configs);
+  
+  const configs = packet.context?.configs;
+  const options = configs ? Object.fromEntries(configs) : undefined;
+  
+  const registry = index(options);
+  const selected = resolve(names, registry, configs);
 
   try {
-    const internal = { pool: poolAPI };
-    await mount(scope, tools, names, packet.globals, internal);
+    await mount(scope, selected, packet.globals);
 
     const url = bust(packet.url);
     const mod = await import(url);
