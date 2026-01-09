@@ -2,6 +2,7 @@ import type { Perms, Tool, DatabaseToolConfig } from '../../types.ts';
 import { inject } from '../../common/index.ts';
 import { Proxy } from './proxy.ts';
 import { Store } from './store.ts';
+import { Auditor } from './auditor.ts';
 
 export interface Config {
   hosts?: string[];
@@ -9,7 +10,8 @@ export interface Config {
 }
 
 export function database(config?: Config): Tool {
-  let store: Store | null = null;
+  let store: (Store & Record<string, unknown>) | null = null;
+  let auditor: Auditor | undefined;
 
   return {
     name: 'database',
@@ -20,17 +22,26 @@ export function database(config?: Config): Tool {
       return {
         env: ['DATABASE_URL'],
         net: [...hosts, ...extra],
+        read: true,
       };
     },
     config,
-    setup: (scope: Record<string, unknown>): void => {
+    setup: async (scope: Record<string, unknown>): Promise<void> => {
       const url = scope.DATABASE_URL as string | undefined;
       if (!url) {
         throw new Error('DATABASE_URL required');
       }
 
+      // Initialize auditor if enabled
+      if (config?.audit?.enableAudit) {
+        auditor = new Auditor({
+          enabled: true,
+          console: config.audit.logToConsole,
+        });
+      }
+
       const proxy = new Proxy();
-      store = Store.create(url, proxy);
+      store = await Store.create(url, proxy, auditor);
       
       inject(scope, 'database', store);
     },
@@ -39,6 +50,7 @@ export function database(config?: Config): Tool {
         await store.close();
         store = null;
       }
+      auditor = undefined;
     },
   };
 }
