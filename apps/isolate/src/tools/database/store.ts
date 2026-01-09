@@ -51,22 +51,36 @@ async function scan(): Promise<Schema> {
 
 class Client {
   public types: Record<string | number, unknown>;
-  public parsers: Record<string, unknown>;
+  public parsers: Record<string, (value: unknown) => unknown>;
   public options: Record<string, unknown>;
+  [key: string]: unknown;
 
   constructor(private url: string, private proxy: Proxy) {
-    this.types = {};
-    this.parsers = {
-      array: () => (value: unknown) => value,
-      text: () => (value: unknown) => value,
-      json: () => (value: unknown) => value,
-      int: () => (value: unknown) => value,
-      bigint: () => (value: unknown) => value,
-    };
+    // Create base objects
+    const types: Record<string | number, unknown> = {};
+    const parsers: Record<string, (value: unknown) => unknown> = {};
+    
+    this.types = types;
+    this.parsers = parsers;
     this.options = {
       max: 10,
       idle_timeout: 120,
     };
+    
+    // Return a proxy to handle any additional property access
+    return new globalThis.Proxy(this, {
+      get: (target, prop) => {
+        if (prop === 'types') return types;
+        if (prop === 'parsers') return parsers;
+        return Reflect.get(target, prop);
+      },
+      set: (target, prop, value) => {
+        if (prop === 'types' || prop === 'parsers') {
+          return Reflect.set(target, prop, value);
+        }
+        return Reflect.set(target, prop, value);
+      },
+    });
   }
 
   async unsafe(sql: string, params?: unknown[]): Promise<unknown> {
@@ -81,17 +95,26 @@ class Client {
 
 class Transaction {
   public types: Record<string | number, unknown>;
-  public parsers: Record<string, unknown>;
+  public parsers: Record<string, (value: unknown) => unknown>;
+  [key: string]: unknown;
 
   constructor(private txId: string, private proxy: Proxy) {
-    this.types = {};
-    this.parsers = {
-      array: () => (value: unknown) => value,
-      text: () => (value: unknown) => value,
-      json: () => (value: unknown) => value,
-      int: () => (value: unknown) => value,
-      bigint: () => (value: unknown) => value,
-    };
+    const types: Record<string | number, unknown> = {};
+    const parsers: Record<string, (value: unknown) => unknown> = {};
+    
+    this.types = types;
+    this.parsers = parsers;
+    
+    return new globalThis.Proxy(this, {
+      get: (target, prop) => {
+        if (prop === 'types') return types;
+        if (prop === 'parsers') return parsers;
+        return Reflect.get(target, prop);
+      },
+      set: (target, prop, value) => {
+        return Reflect.set(target, prop, value);
+      },
+    });
   }
 
   async unsafe(sql: string, params?: unknown[]): Promise<unknown> {
