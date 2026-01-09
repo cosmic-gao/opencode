@@ -1,7 +1,7 @@
-import { drizzle, type PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import { drizzle, type PgRemoteDatabase, type RemoteCallback } from 'drizzle-orm/pg-proxy';
 import type { AnyPgTable } from 'drizzle-orm/pg-core';
-import type postgres from 'postgres';
 import type { Auditor } from './auditor.ts';
+import { Proxy } from './proxy.ts';
 
 const DIR = '../../schemas/';
 const EXT = '.ts';
@@ -48,23 +48,34 @@ async function scan(): Promise<Schema> {
 }
 
 export class Store {
-  private dbInstance: PostgresJsDatabase<Schema> | null = null;
+  private dbInstance: PgRemoteDatabase<Schema> | null = null;
   private schemas: Schema = {};
 
   constructor(
+    private url: string,
+    private proxy: Proxy,
     private auditor?: Auditor,
-    private dbClient?: postgres.Sql,
   ) {}
 
   async init(): Promise<Store & Record<string, TableOperations>> {
     this.schemas = await scan();
 
-    const client = this.dbClient;
-    if (!client) {
-      throw new Error('Database client required for drizzle initialization');
-    }
+    const executor: RemoteCallback = async (sql, params = [], _method) => {
+      const result = await this.proxy.query(this.url, sql, params);
+     
+      if (Array.isArray(result)) {
+        return { rows: result };
+      }
 
-    this.dbInstance = drizzle(client, { schema: this.schemas });
+      if (result && typeof result === 'object' && 'rows' in (result as Record<string, unknown>)) {
+        return { rows: (result as { rows: unknown[] }).rows };
+      }
+
+      return { rows: [] };
+    };
+
+    this.dbInstance = drizzle(executor, { schema: this.schemas });
+
     return new globalThis.Proxy(this as unknown as Store & Record<string, TableOperations>, {
       get: (target, prop: string | symbol) => {
         if (typeof prop === 'symbol' || prop in target) {
@@ -105,26 +116,19 @@ export class Store {
   }
 
   async query(sql: string, params?: unknown[]): Promise<unknown> {
-    if (!this.dbClient) {
-      throw new Error('Database client not initialized');
-    }
-
-    return await this.dbClient.unsafe(sql as never, params as never[]);
+    return await this.proxy.query(this.url, sql, params);
   }
 
   async close(): Promise<void> {
-    if (
-      this.dbClient && typeof (this.dbClient as { end?: () => Promise<void> }).end === 'function'
-    ) {
-      await (this.dbClient as { end: () => Promise<void> }).end();
-    }
+    // Worker 侧无直连，连接由宿主池管理
   }
 
   static async create(
-    client: postgres.Sql,
+    url: string,
+    proxy: Proxy,
     auditor?: Auditor,
   ): Promise<Store & Record<string, TableOperations>> {
-    const store = new Store(auditor, client);
+    const store = new Store(url, proxy, auditor);
     return await store.init();
   }
 }

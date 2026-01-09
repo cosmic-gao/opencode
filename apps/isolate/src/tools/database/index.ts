@@ -1,8 +1,8 @@
-import postgres from 'postgres';
 import type { Perms, Tool, DatabaseToolConfig } from '../../types.ts';
 import { inject } from '../../common/index.ts';
 import { Store } from './store.ts';
 import { Auditor } from './auditor.ts';
+import { Proxy } from './proxy.ts';
 
 export interface Config {
   hosts?: string[];
@@ -20,7 +20,7 @@ export function database(config?: Config): Tool {
       const hosts = ['localhost', '127.0.0.1', '0.0.0.0'];
   
       return {
-        env: true, // allow postgres.js to read all PG* related envs without enumerating
+        env: true,
         net: [...hosts, ...extra],
         read: true,
       };
@@ -40,12 +40,8 @@ export function database(config?: Config): Tool {
         });
       }
 
-      const client = postgres(url, {
-        max: 10,
-        idle_timeout: 120,
-      });
-
-      store = await Store.create(client, auditor);
+      const proxy = new Proxy();
+      store = await Store.create(url, proxy, auditor);
       
       inject(scope, 'database', store);
     },
