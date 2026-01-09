@@ -122,7 +122,7 @@ export class Store {
     const client = new Client(this.url, this.proxy) as unknown as postgres.Sql;
     this.dbInstance = drizzle(client, { schema: this.schemas });
     
-    return new globalThis.Proxy(this, {
+    return new globalThis.Proxy(this as unknown as Store & Record<string, TableOperations>, {
       get: (target, prop: string | symbol) => {
         if (typeof prop === 'symbol' || prop in target) {
           return Reflect.get(target, prop);
@@ -134,9 +134,9 @@ export class Store {
         }
         
         return {
-          select: (...args: unknown[]) => {
+          select: () => {
             this.auditor?.record('select', prop);
-            return this.dbInstance!.select().from(table)(...(args as []));
+            return this.dbInstance!.select().from(table);
           },
           insert: (values: unknown) => {
             this.auditor?.record('insert', prop);
@@ -184,7 +184,7 @@ export class Store {
 }
 
 interface TableOperations {
-  select: (...args: unknown[]) => unknown;
+  select: () => unknown;
   insert: (values: unknown) => unknown;
   update: (values: unknown) => { where: (condition: unknown) => unknown };
   delete: () => { where: (condition: unknown) => unknown };
