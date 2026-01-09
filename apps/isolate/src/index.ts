@@ -26,14 +26,22 @@ export {
   LoaderPlugin, 
   encode, 
   SandboxPlugin, 
-  ClusterPlugin,
   LoggerPlugin,
   filter,
   ChannelPlugin,
-  DatabasePoolPlugin,
+  DatabasePlugin,
 } from './plugins/index.ts'
 
 export { send, wait } from './bridge.ts'
 
 export * from './common/index.ts'
-export * from './permissions/index.ts'
+export { 
+  merge, 
+  parse as parsePermissions, 
+  detect, 
+  validate as validatePermissions, 
+  normalize, 
+  resolve as resolvePermissions, 
+  whitelist 
+} from './permissions/index.ts'
+export type { Detection } from './permissions/index.ts'

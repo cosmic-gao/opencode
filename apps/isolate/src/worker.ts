@@ -69,7 +69,7 @@ async function run(packet: Packet): Promise<Output> {
   const selected = resolve(names, registry, configs);
 
   try {
-    await mount(scope, selected, packet.globals);
+    await mount(scope, selected, packet.globals || {});
 
     const url = bust(packet.url);
     const mod = await import(url);
