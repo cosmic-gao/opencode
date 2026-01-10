@@ -6,6 +6,7 @@ export { fault, bust, stringify } from './utils.ts';
 export { parse, extract } from './parser.ts';
 export { create, index, resolve } from './builder.ts';
 export { Host, Client } from './rpc.ts';
+export { serialize, deserialize } from './serialize.ts';
 export * as matcher from './matcher.ts';
 
 export type { ProxyOptions } from './proxy.ts';
