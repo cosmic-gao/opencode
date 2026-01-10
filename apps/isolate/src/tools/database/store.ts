@@ -62,7 +62,6 @@ export class Store {
 
     const executor: RemoteCallback = async (sql, params = [], _method) => {
       const result = await this.proxy.query(this.url, sql, params);
-     
       if (Array.isArray(result)) {
         return { rows: result };
       }

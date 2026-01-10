@@ -14,7 +14,7 @@ export function wait(w: Worker, signal?: AbortSignal): Promise<Reply> {
     
     const onMsg = (ev: MessageEvent) => {
       const msg = ev.data
-      
+      console.log(msg)
       if (msg.type === 'log') {
         const log = msg.data as Entry
         if (logs.length < MAX_LOGS) {

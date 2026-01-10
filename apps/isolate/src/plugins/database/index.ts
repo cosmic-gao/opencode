@@ -1,6 +1,6 @@
 import type { IsolatePlugin } from '../../types.ts';
 import { Pool } from './pool.ts';
-import { Host, serialize } from '../../common/index.ts';
+import { Host } from '../../common/index.ts';
 import type postgres from 'postgres';
 
 interface TransactionMethods {
@@ -49,10 +49,10 @@ export const DatabasePlugin: IsolatePlugin = {
     host.register('pool:query', async (args) => {
       const { url, sql, params } = args as { url: string; sql: string; params?: unknown[] };
       const client = pool.get(url);
-      
+
       try {
         const result = await client.unsafe(sql, params as never[]);
-        return serialize(result);
+        return result;
       } finally {
         pool.release(url);
       }
@@ -74,7 +74,7 @@ export const DatabasePlugin: IsolatePlugin = {
       const txId = crypto.randomUUID();
       const tx = (await client.begin(options as never)) as TransactionEntry['tx'];
       transactions.set(txId, { tx, url });
-      
+
       setTimeout(() => {
         if (transactions.has(txId)) {
           const entry = transactions.get(txId);
@@ -85,7 +85,7 @@ export const DatabasePlugin: IsolatePlugin = {
           }
         }
       }, 30000);
-      
+
       return txId;
     });
 
@@ -94,7 +94,7 @@ export const DatabasePlugin: IsolatePlugin = {
       const entry = transactions.get(txId);
       if (!entry) throw new Error(`Transaction ${txId} not found`);
       const result = await entry.tx.unsafe(sql, params as never[]);
-      return serialize(result);
+      return result;
     });
 
     host.register('pool:txCommit', async (args) => {
