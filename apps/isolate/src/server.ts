@@ -1,19 +1,19 @@
-import { type Context as HonoContext, Hono } from 'hono'
-import type { Output } from './types.ts'
-import { create, type Isolate } from './kernel.ts'
+import { type Context as HonoContext, Hono } from 'hono';
+import type { Output } from './types.ts';
+import { create, type Isolate } from './kernel.ts';
 
-const app = new Hono()
+const app = new Hono();
 
-let engine: Isolate | null = null
+let engine: Isolate | null = null;
 const cache = new Map<string, { time: number; count: number }>();
 const WINDOW = 1000;
 const LIMIT = 10000;
 
 async function kernel(): Promise<Isolate> {
   if (!engine) {
-    engine = await create()
+    engine = await create();
   }
-  return engine
+  return engine;
 }
 
 function purge(): void {
@@ -26,27 +26,27 @@ function purge(): void {
 async function hash(data: unknown): Promise<string> {
   const buffer = await crypto.subtle.digest(
     'SHA-256',
-    new TextEncoder().encode(JSON.stringify(data))
+    new TextEncoder().encode(JSON.stringify(data)),
   );
   return Array.from(new Uint8Array(buffer))
-    .map(b => b.toString(16).padStart(2, '0'))
+    .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
 }
 
 function dedupe(key: string): boolean {
   const now = Date.now();
   const entry = cache.get(key);
-  
+
   if (entry && now - entry.time < WINDOW) {
     return false;
   }
-  
+
   cache.set(key, { time: now, count: (entry?.count ?? 0) + 1 });
-  
+
   if (cache.size > LIMIT) {
     purge();
   }
-  
+
   return true;
 }
 
@@ -58,44 +58,42 @@ app.post('/execute', async (c: HonoContext) => {
     return c.json({ error: 'Duplicate request' }, 429);
   }
 
-  const isolate = await kernel()
-  const out = (await isolate.execute(body)) as Output
-  
+  const isolate = await kernel();
+  const out = (await isolate.execute(body)) as Output;
+
   const large = out.logs?.some(
-    log => log.level === 'exception' && log.name === 'PayloadTooLarge'
-  )
-  
-  const code = large ? 413 : 200
-  return c.json(out, code)
-})
+    (log) => log.level === 'exception' && log.name === 'PayloadTooLarge',
+  );
+
+  const code = large ? 413 : 200;
+  return c.json(out, code);
+});
 
 app.get('/health', (c: HonoContext) => {
-  return c.json({ ok: true, timestamp: Date.now() })
-})
+  return c.json({ ok: true, timestamp: Date.now() });
+});
 
 if (import.meta.main) {
-  const port = 8787
-  console.log(`[isolate] Server starting on port ${port}`)
-  
-  const server = Deno.serve({ port }, app.fetch)
-  
+  const port = 8787;
+  console.log(`[isolate] Server starting on port ${port}`);
+
+  const server = Deno.serve({ port }, app.fetch);
+
   const shutdown = () => {
-    console.log('[isolate] Shutdown...')
+    console.log('[isolate] Shutdown...');
     // Cleanup is handled by plugin lifecycle
     if (engine) {
-      console.log('[isolate] Kernel disposed')
+      console.log('[isolate] Kernel disposed');
     }
-  }
-  
+  };
+
   const exit = () => {
-    shutdown()
-    Deno.exit(0)
-  }
-  
-  Deno.addSignalListener('SIGINT', exit)
-  if (Deno.build.os !== 'windows') {
-    Deno.addSignalListener('SIGTERM', exit)
-  }
-  
-  await server.finished
+    shutdown();
+    Deno.exit(0);
+  };
+
+  const signal = Deno.build.os !== 'windows' ? 'SIGTERM' : 'SIGINT';
+  Deno.addSignalListener(signal, exit);
+
+  await server.finished;
 }

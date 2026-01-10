@@ -176,7 +176,7 @@ export class Pool {
     return this.entries.size;
   }
 
-  healthCheck(): void {
+  health(): void {
     const now = Date.now();
     const suspectThreshold = 300_000; // 5 minutes
 
@@ -193,5 +193,5 @@ export interface PoolAPI {
   release: (url: string) => void;
   stats: () => Record<string, { refs: number; used: number; health: string }>;
   size: () => number;
-  healthCheck: () => void;
+  health: () => void;
 }

@@ -1,5 +1,5 @@
 import type { Entry, Fault, Level, Output, Packet } from './types.ts';
-import { mount, bust, fault, reset, stringify, unmount, resolve } from './common/index.ts';
+import { bust, fault, mount, reset, resolve, stringify, unmount } from './common/index.ts';
 import { index } from './common/builder.ts';
 
 function capture(level: Level) {
@@ -61,10 +61,10 @@ async function run(packet: Packet): Promise<Output> {
   const start = performance.now();
   const scope = globalThis as Record<string, unknown>;
   const names = packet.context?.names || [];
-  
+
   const configs = packet.context?.configs;
   const options = configs ? Object.fromEntries(configs) : undefined;
-  
+
   const registry = index(options);
   const selected = resolve(names, registry, configs);
 

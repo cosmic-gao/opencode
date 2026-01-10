@@ -24,7 +24,7 @@ export interface InternalAPI {
     release: (url: string) => void;
     stats: () => Record<string, { refs: number; used: number; health: string }>;
     size: () => number;
-    healthCheck: () => void;
+    health: () => void;
   };
 }
 
