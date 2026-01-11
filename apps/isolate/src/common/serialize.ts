@@ -139,6 +139,5 @@ export function hydrate(result: unknown, columns: readonly { name: string }[]) {
 
     rows[r] = data;
   }
-  console.log(rows, "hydrated rows")
   return rows;
 }

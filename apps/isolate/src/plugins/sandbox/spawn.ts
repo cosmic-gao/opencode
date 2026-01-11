@@ -7,7 +7,7 @@ export function spawn(permissions?: Deno.PermissionOptions): Process {
   const options = {
     type: 'module',
     deno: {
-      namespace: true,
+      namespace: false,
       permissions: perms,
     },
   } as WorkerOptions;
