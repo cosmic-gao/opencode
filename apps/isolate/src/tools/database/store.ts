@@ -62,7 +62,6 @@ export class Store {
 
     const executor: RemoteCallback = async (sql, params = [], _method) => {
       const rows = await this.proxy.query(this.url, sql, params);
-      console.log(rows, "executor rows")
       return {
         // deno-lint-ignore no-explicit-any
         rows: rows as any[],
@@ -83,11 +82,9 @@ export class Store {
         }
 
         return {
-          select: async () => {
+          select:  () => {
             this.auditor?.record('select', prop);
-            const a = await this.dbInstance!.select().from(table);
-            console.log(a);
-            return a;
+            return this.dbInstance!.select().from(table);
           },
           insert: (values: unknown) => {
             this.auditor?.record('insert', prop);
@@ -117,7 +114,6 @@ export class Store {
   }
 
   async close(): Promise<void> {
-    // Worker 侧无直连，连接由宿主池管理
   }
 
   static async create(
