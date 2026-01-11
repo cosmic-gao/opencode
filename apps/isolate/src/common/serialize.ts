@@ -118,3 +118,27 @@ export function deserialize(value: unknown): unknown {
   
   return value;
 }
+
+export function hydrate(result: unknown, columns: readonly { name: string }[]) {
+  const names = columns.map((c) => c.name);
+  const count = names.length;
+
+  if (!Array.isArray(result) || count === 0) {
+    return [];
+  }
+
+  const rows = new Array(result.length);
+
+  for (let r = 0; r < result.length; r++) {
+    const row = result[r] as Record<string, unknown>;
+    const data = new Array(count);
+
+    for (let c = 0; c < count; c++) {
+      data[c] = row[names[c]];
+    }
+
+    rows[r] = data;
+  }
+  console.log(rows, "hydrated rows")
+  return rows;
+}

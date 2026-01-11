@@ -1,0 +1,41 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Deno: Debug isolate server",
+      "request": "launch",
+      "type": "node",
+      "program": "${workspaceFolder}/apps/isolate/src/server.ts",
+      "cwd": "${workspaceFolder}/apps/isolate",
+      "runtimeExecutable": "deno",
+      "runtimeArgs": [
+        "run",
+        "--inspect-brk=127.0.0.1:9229",
+        "--allow-all",
+        "--env-file=.env"
+      ],
+      "attachSimplePort": 9229,
+      "outputCapture": "std",
+      "console": "integratedTerminal",
+      "env": {
+        "NO_COLOR": "1"
+      },
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Deno: Debug current file",
+      "request": "launch",
+      "type": "node",
+      "program": "${file}",
+      "cwd": "${workspaceFolder}",
+      "runtimeExecutable": "deno",
+      "runtimeArgs": [
+        "run",
+        "--inspect-wait",
+        "--allow-all"
+      ],
+      "attachSimplePort": 9229,
+      "outputCapture": "std"
+    }
+  ]
+}

@@ -1,3 +1,5 @@
+import { hydrate } from './index.ts';
+
 type Handler = (args: unknown) => unknown | Promise<unknown>;
 type Resolver = (value: unknown) => void;
 type Rejecter = (reason: Error) => void;
@@ -30,7 +32,16 @@ export class Host {
 
       try {
         const result = await this.handle(method, args);
-        worker.postMessage({ type: 'rpc:reply', id, result });
+        const rows = Array.isArray(result)
+          ? result
+          : result && typeof result === 'object' && 'rows' in result
+          ? (result as { rows: unknown[] }).rows
+          : [];
+        const columns = result && typeof result === 'object' && 'columns' in result
+          ? (result as { columns: readonly { name: string }[] }).columns
+          : [];
+
+        worker.postMessage({ type: 'rpc:reply', id, result: hydrate(rows, columns) });
       } catch (error) {
         const err = error as Error;
         worker.postMessage({
@@ -51,6 +62,7 @@ export class Client {
     self.addEventListener('message', (event: MessageEvent) => {
       if (event.data?.type === 'rpc:reply') {
         const { id, result } = event.data;
+
         const call = this.calls.get(id);
         if (call) {
           this.calls.delete(id);

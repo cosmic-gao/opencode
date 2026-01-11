@@ -61,16 +61,12 @@ export class Store {
     this.schemas = await scan();
 
     const executor: RemoteCallback = async (sql, params = [], _method) => {
-      const result = await this.proxy.query(this.url, sql, params);
-      if (Array.isArray(result)) {
-        return { rows: result };
-      }
-
-      if (result && typeof result === 'object' && 'rows' in (result as Record<string, unknown>)) {
-        return { rows: (result as { rows: unknown[] }).rows };
-      }
-
-      return { rows: [] };
+      const rows = await this.proxy.query(this.url, sql, params);
+      console.log(rows, "executor rows")
+      return {
+        // deno-lint-ignore no-explicit-any
+        rows: rows as any[],
+      };
     };
 
     this.dbInstance = drizzle(executor, { schema: this.schemas });
@@ -87,9 +83,11 @@ export class Store {
         }
 
         return {
-          select: () => {
+          select: async () => {
             this.auditor?.record('select', prop);
-            return this.dbInstance!.select().from(table);
+            const a = await this.dbInstance!.select().from(table);
+            console.log(a);
+            return a;
           },
           insert: (values: unknown) => {
             this.auditor?.record('insert', prop);
