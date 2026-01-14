@@ -1,0 +1,6 @@
+{
+  "name": "echo",
+  "description": "Echo input as JSON",
+  "entry": "src/main.ts"
+}
+

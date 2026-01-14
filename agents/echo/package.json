@@ -1,0 +1,14 @@
+{
+  "name": "@opencode/agent-echo",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun src/main.ts"
+  },
+  "devDependencies": {
+    "@opencode/tsconfig": "workspace:*",
+    "typescript": "^5.9.3"
+  }
+}
+

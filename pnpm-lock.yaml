@@ -18,6 +18,15 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
+  agents/echo:
+    devDependencies:
+      '@opencode/tsconfig':
+        specifier: workspace:*
+        version: link:../../configs/tsconfig
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   apps/codex:
     dependencies:
       pinia:
@@ -60,7 +69,32 @@ importers:
 
   apps/isolate: {}
 
+  apps/overmind:
+    dependencies:
+      '@opencode/oneapi':
+        specifier: workspace:*
+        version: link:../../packages/oneapi
+      '@opencode/plugable':
+        specifier: workspace:*
+        version: link:../../packages/plugable
+    devDependencies:
+      '@opencode/tsconfig':
+        specifier: workspace:*
+        version: link:../../configs/tsconfig
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   configs/tsconfig: {}
+
+  packages/oneapi:
+    devDependencies:
+      '@opencode/tsconfig':
+        specifier: workspace:*
+        version: link:../../configs/tsconfig
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
 
   packages/plugable:
     devDependencies:
