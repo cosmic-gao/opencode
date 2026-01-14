@@ -4,10 +4,23 @@ import type { AnyHook, Hooks, Plugin } from '@opencode/plugable'
 import type { AgentSpec, KernelContext, RunContext, RunResponse } from './types'
 import { RunPlugin } from './run'
 import { ScanPlugin } from './scan'
+import type { TaskRequest, TaskResponse, TaskContext } from './task'
+import { InputPlugin } from './input'
+import { PromptPlugin } from './prompting'
+import { ModelPlugin } from './modeling'
+import { CheckPlugin } from './checking'
+import { createAgentPlugin } from './agenting'
+import { OutputPlugin } from './outputing'
 
 export type OvermindHooks = Hooks & {
   onScan: ReturnType<typeof createAsyncHook<KernelContext>>
   onRun: ReturnType<typeof createAsyncHook<RunContext>>
+  onInput: ReturnType<typeof createAsyncHook<TaskContext>>
+  onPrompt: ReturnType<typeof createAsyncHook<TaskContext>>
+  onModel: ReturnType<typeof createAsyncHook<TaskContext>>
+  onCheck: ReturnType<typeof createAsyncHook<TaskContext>>
+  onAgent: ReturnType<typeof createAsyncHook<TaskContext>>
+  onOutput: ReturnType<typeof createAsyncHook<TaskContext>>
   [key: string]: AnyHook
 }
 
@@ -20,6 +33,12 @@ function hooks(): OvermindHooks {
   return {
     onScan: createAsyncHook<KernelContext>(),
     onRun: createAsyncHook<RunContext>(),
+    onInput: createAsyncHook<TaskContext>(),
+    onPrompt: createAsyncHook<TaskContext>(),
+    onModel: createAsyncHook<TaskContext>(),
+    onCheck: createAsyncHook<TaskContext>(),
+    onAgent: createAsyncHook<TaskContext>(),
+    onOutput: createAsyncHook<TaskContext>(),
   } as OvermindHooks
 }
 
@@ -27,6 +46,7 @@ export type Kernel = {
   scan: () => Promise<AgentSpec[]>
   list: () => Promise<AgentSpec[]>
   run: (name: string, inputText: string) => Promise<RunResponse>
+  task: (request: TaskRequest) => Promise<TaskResponse>
 }
 
 export async function createKernel(options: KernelOptions): Promise<Kernel> {
@@ -35,7 +55,7 @@ export async function createKernel(options: KernelOptions): Promise<Kernel> {
     context: { rootPath: options.rootPath, agentList: [] },
   })
 
-  manager.use([ScanPlugin, RunPlugin])
+  manager.use([ScanPlugin, RunPlugin, InputPlugin, PromptPlugin, ModelPlugin, CheckPlugin, createAgentPlugin({ run }), OutputPlugin])
   if (options.plugins?.length) manager.use(options.plugins)
 
   await manager.init()
@@ -63,5 +83,17 @@ export async function createKernel(options: KernelOptions): Promise<Kernel> {
     return next.response ?? { success: false, text: '', error: 'No response' }
   }
 
-  return { scan, list, run }
+  async function task(request: TaskRequest): Promise<TaskResponse> {
+    await scan()
+    let context: TaskContext = { request }
+    context = await pipe.onInput.call(context)
+    context = await pipe.onPrompt.call(context)
+    context = await pipe.onModel.call(context)
+    context = await pipe.onCheck.call(context)
+    context = await pipe.onAgent.call(context)
+    context = await pipe.onOutput.call(context)
+    return context.response ?? { requestId: request.requestId, success: false, error: 'No response' }
+  }
+
+  return { scan, list, run, task }
 }

@@ -1,8 +1,11 @@
 import { OneapiError, type ChatRequest, type ChatResponse, type Provider, type Usage } from './types'
+import type { KeyStore } from './key'
 
 export type OpenaiOptions = {
   baseUrl: string
-  apiKey: string
+  apiKey?: string
+  keyStore?: KeyStore
+  provider?: string
   timeoutMs?: number
 }
 
@@ -52,13 +55,33 @@ function mapMessages(request: ChatRequest): OpenaiMessage[] {
 
 export class OpenaiProvider implements Provider {
   private baseUrl: string
-  private apiKey: string
+  private apiKey?: string
+  private keyStore?: KeyStore
+  private provider?: string
   private timeoutMs: number
 
   constructor(options: OpenaiOptions) {
     this.baseUrl = options.baseUrl
     this.apiKey = options.apiKey
+    this.keyStore = options.keyStore
+    this.provider = options.provider
     this.timeoutMs = options.timeoutMs ?? 60_000
+  }
+
+  private getKey(request: ChatRequest): string {
+    if (this.apiKey) return this.apiKey
+    if (typeof request.keyName === 'string' && /^sk-[A-Za-z0-9]{10,}/.test(request.keyName)) {
+      throw new OneapiError({
+        message: 'Invalid keyName: keyName is a selector, set ONEAPI_API_KEY / ONEAPI_API_KEY_* in env',
+      })
+    }
+    const apiKey = this.keyStore?.get({
+      provider: request.provider ?? this.provider,
+      model: request.model,
+      keyName: request.keyName,
+    })
+    if (apiKey) return apiKey
+    throw new OneapiError({ message: 'Missing apiKey' })
   }
 
   async chat(request: ChatRequest): Promise<ChatResponse> {
@@ -67,11 +90,12 @@ export class OpenaiProvider implements Provider {
     const timer = setTimeout(() => abort.abort(), this.timeoutMs)
 
     try {
+      const apiKey = this.getKey(request)
       const response = await fetch(url, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          authorization: `Bearer ${this.apiKey}`,
+          authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
           model: request.model,
@@ -109,4 +133,3 @@ export class OpenaiProvider implements Provider {
 export function createOpenaiProvider(options: OpenaiOptions): OpenaiProvider {
   return new OpenaiProvider(options)
 }
-

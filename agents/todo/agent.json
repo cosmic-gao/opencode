@@ -1,0 +1,6 @@
+{
+  "name": "todo",
+  "description": "Generate todo list from chat",
+  "entry": "src/main.ts"
+}
+

@@ -1,7 +1,11 @@
 import * as path from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 
 import { createKernel } from './kernel'
+import { serve } from './serve'
+import { parseChat } from './chat'
+import { parseTask } from './task'
 
 function readText(): Promise<string> {
   return new Promise((resolve) => {
@@ -20,6 +24,15 @@ function findValue(args: string[], name: string): string | undefined {
 
 function rootPath(filePath: string): string {
   return path.resolve(path.dirname(filePath), '../../..')
+}
+
+function findIntent(messages: { role: string; text: string }[]): string {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const item = messages[index]
+    if (!item) continue
+    if (item.role === 'user' && item.text.length > 0) return item.text
+  }
+  return messages.map((item) => item.text).join('\n')
 }
 
 async function main(): Promise<void> {
@@ -51,9 +64,59 @@ async function main(): Promise<void> {
     return
   }
 
-  process.stderr.write('Usage: overmind list | overmind run <name> [--json <json>]\n')
+  if (command === 'task') {
+    const json = findValue(args, '--json')
+    const inputText = json ?? (await readText())
+    const data = JSON.parse(inputText || 'null') as unknown
+    const request = parseTask(data)
+    if (!request) {
+      process.stdout.write(JSON.stringify({ success: false, error: 'Invalid request' }, null, 2) + '\n')
+      process.exitCode = 1
+      return
+    }
+    const result = await kernel.task(request)
+    process.stdout.write(JSON.stringify(result, null, 2) + '\n')
+    process.exitCode = result.success ? 0 : 1
+    return
+  }
+
+  if (command === 'chat') {
+    const json = findValue(args, '--json')
+    const inputText = json ?? (await readText())
+    const data = JSON.parse(inputText || 'null') as unknown
+    const chat = parseChat(data)
+    if (!chat) {
+      process.stdout.write(JSON.stringify({ success: false, error: 'Invalid request' }, null, 2) + '\n')
+      process.exitCode = 1
+      return
+    }
+
+    const requestId = chat.requestId ?? randomUUID()
+    const request = {
+      requestId,
+      taskType: 'chat',
+      userIntent: findIntent(chat.messages),
+      context: { messages: chat.messages, limit: chat.limit },
+      keyName: chat.keyName,
+      provider: chat.provider,
+      model: chat.model,
+    }
+
+    const result = await kernel.task(request)
+    process.stdout.write(JSON.stringify(result, null, 2) + '\n')
+    process.exitCode = result.success ? 0 : 1
+    return
+  }
+
+  if (command === 'serve') {
+    const portText = findValue(args, '--port')
+    const port = portText ? Number(portText) : 8787
+    serve({ kernel, port: Number.isFinite(port) ? port : 8787 })
+    return
+  }
+
+  process.stderr.write('Usage: overmind list | overmind run <name> [--json <json>] | overmind task [--json <json>] | overmind chat [--json <json>] | overmind serve [--port <number>]\n')
   process.exitCode = 1
 }
 
 await main()
-

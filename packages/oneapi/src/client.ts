@@ -1,4 +1,4 @@
-import type { ChatRequest, ChatResponse, Provider } from './types.ts'
+import type { ChatRequest, ChatResponse, Provider } from './types'
 
 export type ClientOptions = {
   provider: Provider

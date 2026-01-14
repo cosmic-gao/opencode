@@ -1,17 +1,17 @@
 {
-  "name": "@opencode/overmind",
+  "name": "@opencode/agent-todo",
   "version": "0.0.1",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun src/main.ts serve --port 8786"
+    "dev": "bun src/main.ts"
   },
   "dependencies": {
-    "@opencode/oneapi": "workspace:*",
-    "@opencode/plugable": "workspace:*"
+    "@opencode/oneapi": "workspace:*"
   },
   "devDependencies": {
     "@opencode/tsconfig": "workspace:*",
     "typescript": "^5.9.3"
   }
 }
+

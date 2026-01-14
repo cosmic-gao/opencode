@@ -14,6 +14,8 @@ export type Usage = {
 export type ChatRequest = {
   messages: readonly Message[]
   model: string
+  provider?: string
+  keyName?: string
   temperature?: number
   maxTokens?: number
 }
@@ -47,4 +49,3 @@ export class OneapiError extends Error {
     ;(this as { cause?: unknown }).cause = data.cause
   }
 }
-
