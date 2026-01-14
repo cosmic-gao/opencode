@@ -1,0 +1,3 @@
+# Docs
+
+- [ARCHITECTURE](ARCHITECTURE.md)
