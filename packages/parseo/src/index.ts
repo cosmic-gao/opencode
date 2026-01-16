@@ -18,3 +18,5 @@ export * from './semantic/loader'
 
 export * from './builtin/flow'
 export * from './builtin/semantic'
+
+export * from './adapter'

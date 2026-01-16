@@ -4,15 +4,12 @@
   "private": true,
   "type": "module",
   "main": "./src/index.ts",
-  "targets": {
-    "main": false
-  },
   "files": [
     "src",
     "ARCHITECTURE.md"
   ],
   "scripts": {
-    "dev": "parcel examples/index.html"
+    "dev": "vite"
   },
   "dependencies": {
     "@opencode/plugable": "workspace:*"
@@ -21,7 +18,8 @@
     "@opencode/tsconfig": "workspace:*",
     "bun-types": "^1.3.0",
     "monaco-editor": "^0.55.1",
-    "parcel": "^2.16.3",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vite": "^7.3.0",
+    "vue": "^3.5.26"
   }
 }
