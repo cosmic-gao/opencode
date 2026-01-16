@@ -1,5 +1,6 @@
 import type { Diagnostic, SourcePoint, SourceSpan } from '../../syntax/diagnostic'
 import type { MetaValue, SyntaxNode } from '../../syntax/node'
+import { createPoint, createSpan } from '../shared/source'
 
 export type JsTokenType =
   | 'keyword' // import, export, const, let, var, function, return, if, else, for, while
@@ -21,14 +22,6 @@ export interface JsToken {
   type: JsTokenType
   text: string
   span: SourceSpan
-}
-
-function createPoint(line: number, column: number, offset: number): SourcePoint {
-  return { line, column, offset }
-}
-
-function createSpan(start: SourcePoint, end: SourcePoint): SourceSpan {
-  return { start, end }
 }
 
 class JsTokenizer {
@@ -423,9 +416,10 @@ export class JsParser {
     if (this.match('jsxSelfClosing')) {
       const endToken = this.advance()
       return {
-        kind: 'JsxElement',
+        type: 'JsxElement',
         attrs: { tagName, ...attrs },
-        span: { start: startToken.span.start, end: endToken.span.end }
+        span: { start: startToken.span.start.offset, end: endToken.span.end.offset, ctxt: 0 },
+        loc: { start: startToken.span.start, end: endToken.span.end },
       }
     }
     
@@ -457,10 +451,11 @@ export class JsParser {
     const endToken = this.consume('jsxTagClose') || this.peek(-1)
     
     return {
-        kind: 'JsxElement',
+        type: 'JsxElement',
         attrs: { tagName, ...attrs },
         children,
-        span: { start: startToken.span.start, end: endToken.span.end }
+        span: { start: startToken.span.start.offset, end: endToken.span.end.offset, ctxt: 0 },
+        loc: { start: startToken.span.start, end: endToken.span.end },
     }
   }
 
@@ -482,9 +477,10 @@ export class JsParser {
     const end = this.previous().span.end
     
     return {
-      kind: 'ImportDeclaration',
+      type: 'ImportDeclaration',
       attrs: { text: text.trim() },
-      span: { start, end }
+      span: { start: start.offset, end: end.offset, ctxt: 0 },
+      loc: { start, end },
     }
   }
 
@@ -508,9 +504,10 @@ export class JsParser {
     const end = this.previous().span.end
     
     return {
-      kind: 'ExportDeclaration',
+      type: 'ExportDeclaration',
       attrs: { text: text.trim() },
-      span: { start, end }
+      span: { start: start.offset, end: end.offset, ctxt: 0 },
+      loc: { start, end },
     }
   }
 
@@ -544,9 +541,10 @@ export class JsParser {
     text = this.getSource(start, end)
     
     return {
-      kind: 'VariableStatement',
+      type: 'VariableStatement',
       attrs: { text: text.trim() },
-      span: { start, end }
+      span: { start: start.offset, end: end.offset, ctxt: 0 },
+      loc: { start, end },
     }
   }
 
@@ -583,9 +581,10 @@ export class JsParser {
     const end = this.previous().span.end
     
     return {
-      kind: 'FunctionDeclaration',
+      type: 'FunctionDeclaration',
       attrs: { text: text.trim() },
-      span: { start, end }
+      span: { start: start.offset, end: end.offset, ctxt: 0 },
+      loc: { start, end },
     }
   }
   
@@ -611,10 +610,11 @@ export class JsParser {
               text = this.getSource(start, end)
               
               return {
-                  kind: 'ReturnStatement',
+                  type: 'ReturnStatement',
                   attrs: { text: text.trim() },
                   children: jsxNode ? [jsxNode] : [],
-                  span: { start, end }
+                  span: { start: start.offset, end: end.offset, ctxt: 0 },
+                  loc: { start, end },
               }
           }
       }
@@ -631,10 +631,11 @@ export class JsParser {
           text = this.getSource(start, realEnd)
           
           return {
-              kind: 'ReturnStatement',
+              type: 'ReturnStatement',
               attrs: { text: text.trim() },
               children: jsxNode ? [jsxNode] : [],
-              span: { start, end: realEnd }
+              span: { start: start.offset, end: realEnd.offset, ctxt: 0 },
+              loc: { start, end: realEnd },
           }
       }
 
@@ -648,9 +649,10 @@ export class JsParser {
       text = this.getSource(start, end)
       
       return {
-          kind: 'ReturnStatement',
+          type: 'ReturnStatement',
           attrs: { text: text.trim() },
-          span: { start, end }
+          span: { start: start.offset, end: end.offset, ctxt: 0 },
+          loc: { start, end },
       }
   }
 
@@ -660,9 +662,10 @@ export class JsParser {
     const end = this.previous().span.end
     
     return {
-      kind: 'Statement',
+      type: 'Statement',
       attrs: { text },
-      span: { start, end }
+      span: { start: start.offset, end: end.offset, ctxt: 0 },
+      loc: { start, end },
     }
   }
 }

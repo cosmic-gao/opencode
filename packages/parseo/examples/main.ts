@@ -39,7 +39,7 @@ function formatDiagnostics(list: { level: string; code: string; message: string 
 }
 
 function serializer(key: string, value: unknown): unknown {
-  if (key === 'span' && value && typeof value === 'object') {
+  if (key === 'loc' && value && typeof value === 'object') {
     const span = value as { start: { line: number; column: number }; end: { line: number; column: number } }
     return {
       start: `${span.start.line}:${span.start.column}`,
@@ -56,10 +56,10 @@ function buildNeutralDocument(nodes: SyntaxNode[]) {
   while (queue.length) {
     const node = queue.shift()!
     document.entities.push({
-      type: node.kind,
-      name: node.name ?? `${node.kind}-${fallbackCount++}`,
+      type: node.type,
+      name: node.name ?? `${node.type}-${fallbackCount++}`,
       attrs: node.attrs,
-      span: node.span,
+      span: node.loc,
       meta: node.meta,
       tags: node.tags,
     })

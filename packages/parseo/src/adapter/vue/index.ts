@@ -44,12 +44,12 @@ export class VueAdapter extends HtmlAdapter {
 
   private enhanceNode(node: SyntaxNode) {
     // 针对 script 标签内容进行特殊处理
-    if (node.kind === 'Element' && node.name === 'script' && node.children) {
+    if (node.type === 'Element' && node.name === 'script' && node.children) {
       this.processScript(node)
     }
     
     // 针对 style 标签内容进行特殊处理
-    if (node.kind === 'Element' && node.name === 'style' && node.children) {
+    if (node.type === 'Element' && node.name === 'style' && node.children) {
       this.processStyle(node)
     }
     
@@ -87,7 +87,7 @@ export class VueAdapter extends HtmlAdapter {
   private extractTextContent(node: SyntaxNode): string {
     if (!node.children) return ''
     return node.children
-      .filter((child) => child.kind === 'Text')
+      .filter((child) => child.type === 'Text')
       .map((child) => child.attrs?.value)
       .join('')
   }

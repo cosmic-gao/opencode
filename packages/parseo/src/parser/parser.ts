@@ -1,7 +1,7 @@
 import type { Diagnostic, SourceSpan } from '../syntax/diagnostic'
-import type { MetaValue, SyntaxNode } from '../syntax/node'
-import type { Token } from './tokenizer'
-import { tokenizeText } from './tokenizer'
+import type { MetaValue, SwcSpan, SyntaxNode } from '../syntax/node'
+import type { LanguageProfile, Token } from './tokenizer'
+import { ParseoDslProfile, tokenizeText } from './tokenizer'
 
 export interface ParseResult {
   nodes: SyntaxNode[]
@@ -9,7 +9,7 @@ export interface ParseResult {
 }
 
 function isEndToken(token: Token): boolean {
-  return token.type === 'end'
+  return token.category === 'end'
 }
 
 function mergeSpan(start?: SourceSpan, end?: SourceSpan): SourceSpan | undefined {
@@ -18,10 +18,17 @@ function mergeSpan(start?: SourceSpan, end?: SourceSpan): SourceSpan | undefined
   return { start: start.start, end: end.end }
 }
 
+function toSwcSpan(span?: SourceSpan): SwcSpan | undefined {
+  if (!span) return
+  return { start: span.start.offset, end: span.end.offset, ctxt: 0 }
+}
+
 function toValue(token: Token): MetaValue {
-  if (token.type === 'string') return token.text
-  if (token.type === 'number') return Number(token.text)
-  if (token.type === 'identifier') {
+  if (token.category === 'literal' && token.kind === 'string' && typeof token.value === 'string') return token.value
+  if (token.category === 'literal' && token.kind === 'number' && typeof token.value === 'number') return token.value
+  if (token.category === 'literal' && token.kind === 'string') return token.text
+  if (token.category === 'literal' && token.kind === 'number') return Number(token.text)
+  if (token.category === 'identifier') {
     if (token.text === 'true') return true
     if (token.text === 'false') return false
     if (token.text === 'null') return null
@@ -40,8 +47,8 @@ export class TextParser {
    *
    * @param text - DSL 源文本
    */
-  constructor(text: string) {
-    const result = tokenizeText(text)
+  constructor(text: string, profile: LanguageProfile = ParseoDslProfile) {
+    const result = tokenizeText(text, profile)
     this.tokens = result.tokens
     this.diagnostics = [...result.diagnostics]
   }
@@ -56,7 +63,7 @@ export class TextParser {
     while (!isEndToken(this.peek())) {
       this.skipNewline()
       if (isEndToken(this.peek())) break
-      if (this.peek().type === 'braceClose') {
+      if (this.peek().category === 'delimiter' && this.peek().kind === 'braceClose') {
         this.error('Unexpected closing brace', this.peek().span)
         this.index += 1
         continue
@@ -72,14 +79,14 @@ export class TextParser {
     const kindToken = this.consume('identifier')
     if (!kindToken) return this.recoverInvalidNode()
 
-    const kind = kindToken.text
+    const type = kindToken.text
     const startSpan = kindToken.span
     const startIndex = this.index
 
-    const linkNode = this.parseLinkNode(kind, startSpan)
+    const linkNode = this.parseLinkNode(type, startSpan)
     if (linkNode) return linkNode
 
-    return this.parseBlockOrStatement(kind, startSpan, startIndex)
+    return this.parseBlockOrStatement(type, startSpan, startIndex)
   }
 
   private recoverInvalidNode(): undefined {
@@ -87,60 +94,60 @@ export class TextParser {
     return
   }
 
-  private parseLinkNode(kind: string, kindSpan: SourceSpan): SyntaxNode | undefined {
+  private parseLinkNode(type: string, typeSpan: SourceSpan): SyntaxNode | undefined {
     const fromToken = this.peek()
     const arrowToken = this.peek(1)
-    if (fromToken.type !== 'identifier' || arrowToken.type !== 'arrow') return
+    if (fromToken.category !== 'identifier' || arrowToken.category !== 'operator' || arrowToken.kind !== 'arrow') return
 
     this.consume('identifier')
-    this.consume('arrow')
+    this.consume('operator', 'arrow')
     const toToken = this.consume('identifier')
     const attrs = this.parseAttrs()
 
     const endSpan = (toToken?.span ?? fromToken.span)
-    const span = mergeSpan(kindSpan, endSpan)
+    const loc = mergeSpan(typeSpan, endSpan)
     this.recoverLine()
 
-    if (!toToken) return { kind, attrs: { from: fromToken.text, ...attrs }, span }
-    return { kind, attrs: { from: fromToken.text, to: toToken.text, ...attrs }, span }
+    if (!toToken) return { type, attrs: { from: fromToken.text, ...attrs }, span: toSwcSpan(loc), loc }
+    return { type, attrs: { from: fromToken.text, to: toToken.text, ...attrs }, span: toSwcSpan(loc), loc }
   }
 
-  private parseBlockOrStatement(kind: string, kindSpan: SourceSpan, startIndex: number): SyntaxNode {
+  private parseBlockOrStatement(type: string, typeSpan: SourceSpan, startIndex: number): SyntaxNode {
     const name = this.parseName()
     const attrs = this.parseAttrs()
-    if (this.peek().type === 'braceOpen') return this.parseBlock(kind, name, attrs, kindSpan)
+    if (this.peek().category === 'delimiter' && this.peek().kind === 'braceOpen') return this.parseBlock(type, name, attrs, typeSpan)
 
-    const span = mergeSpan(kindSpan, this.previous(startIndex)?.span ?? kindSpan)
+    const loc = mergeSpan(typeSpan, this.previous(startIndex)?.span ?? typeSpan)
     this.recoverLine()
-    return { kind, name, attrs, span }
+    return { type, name, attrs, span: toSwcSpan(loc), loc }
   }
 
   private parseName(): string | undefined {
-    if (this.peek().type !== 'identifier') return
+    if (this.peek().category !== 'identifier') return
     return this.consume('identifier')?.text
   }
 
   private parseBlock(
-    kind: string,
+    type: string,
     name: string | undefined,
     attrs: Record<string, MetaValue> | undefined,
     startSpan: SourceSpan,
   ): SyntaxNode {
-    const open = this.consume('braceOpen')!
+    const open = this.consume('delimiter', 'braceOpen')!
     const children = this.parseChildren()
-    const close = this.consume('braceClose')
+    const close = this.consume('delimiter', 'braceClose')
     if (!close) this.error('Missing closing brace', open.span)
 
-    const span = mergeSpan(startSpan, close?.span ?? open.span)
+    const loc = mergeSpan(startSpan, close?.span ?? open.span)
     this.recoverLine()
-    return { kind, name, attrs, children, span }
+    return { type, name, attrs, children, span: toSwcSpan(loc), loc }
   }
 
   private parseChildren(): SyntaxNode[] {
     const children: SyntaxNode[] = []
-    while (!isEndToken(this.peek()) && this.peek().type !== 'braceClose') {
+    while (!isEndToken(this.peek()) && !(this.peek().category === 'delimiter' && this.peek().kind === 'braceClose')) {
       this.skipNewline()
-      if (this.peek().type === 'braceClose') break
+      if (this.peek().category === 'delimiter' && this.peek().kind === 'braceClose') break
       const child = this.parseNode()
       if (child) children.push(child)
       this.skipNewline()
@@ -155,13 +162,15 @@ export class TextParser {
     while (true) {
       const keyToken = this.peek()
       const equalsToken = this.peek(1)
-      if (keyToken.type !== 'identifier' || equalsToken.type !== 'equals') break
+      if (keyToken.category !== 'identifier' || equalsToken.category !== 'delimiter' || equalsToken.kind !== 'equals') break
 
       this.index += 1
       this.index += 1
 
       const valueToken = this.peek()
-      if (valueToken.type !== 'identifier' && valueToken.type !== 'number' && valueToken.type !== 'string') {
+      const isIdentifier = valueToken.category === 'identifier'
+      const isLiteral = valueToken.category === 'literal' && (valueToken.kind === 'number' || valueToken.kind === 'string')
+      if (!isIdentifier && !isLiteral) {
         this.error('Missing attribute value', valueToken.span)
         break
       }
@@ -186,10 +195,14 @@ export class TextParser {
     return this.tokens[previousIndex]
   }
 
-  private consume(type: Token['type']): Token | undefined {
+  private consume(category: Token['category'], kind?: Token['kind']): Token | undefined {
     const token = this.peek()
-    if (token.type !== type) {
-      this.error(`Expected ${type} but got ${token.type}`, token.span)
+    const categoryMatch = token.category === category
+    const kindMatch = kind === undefined ? true : token.kind === kind
+    if (!categoryMatch || !kindMatch) {
+      const expected = kind ? `${category}:${kind}` : category
+      const actual = token.kind ? `${token.category}:${token.kind}` : token.category
+      this.error(`Expected ${expected} but got ${actual}`, token.span)
       return
     }
     this.index += 1
@@ -197,11 +210,15 @@ export class TextParser {
   }
 
   private skipNewline(): void {
-    while (this.peek().type === 'newline') this.index += 1
+    while (this.peek().category === 'lineBreak') this.index += 1
   }
 
   private recoverLine(): void {
-    while (!isEndToken(this.peek()) && this.peek().type !== 'newline' && this.peek().type !== 'braceClose') {
+    while (
+      !isEndToken(this.peek()) &&
+      this.peek().category !== 'lineBreak' &&
+      !(this.peek().category === 'delimiter' && this.peek().kind === 'braceClose')
+    ) {
       this.index += 1
     }
   }
@@ -217,6 +234,6 @@ export class TextParser {
  * @param text - DSL 源文本
  * @returns 解析结果（不抛异常）
  */
-export function parseText(text: string): ParseResult {
-  return new TextParser(text).parse()
+export function parseText(text: string, profile: LanguageProfile = ParseoDslProfile): ParseResult {
+  return new TextParser(text, profile).parse()
 }

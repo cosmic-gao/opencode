@@ -4,12 +4,19 @@ export type MetaValue = null | boolean | number | string | MetaValue[] | { [key:
 
 export type MetaStore = Record<string, Record<string, MetaValue>>
 
+export interface SwcSpan {
+  start: number
+  end: number
+  ctxt: number
+}
+
 export interface SyntaxNode {
-  kind: string
+  type: string
   name?: string
   attrs?: Record<string, MetaValue>
   children?: SyntaxNode[]
-  span?: SourceSpan
+  span?: SwcSpan
+  loc?: SourceSpan
   meta?: MetaStore
   tags?: string[]
 }

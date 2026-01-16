@@ -1,6 +1,7 @@
 import type { Diagnostic, SourcePoint, SourceSpan } from '../../syntax/diagnostic'
 import type { MetaValue, SyntaxNode } from '../../syntax/node'
 import type { Adapter, AdaptResult } from '../../adapter'
+import { createPoint, createSpan } from '../shared/source'
 
 export type HtmlTokenType =
   | 'startTagOpen' // <
@@ -25,14 +26,6 @@ export interface HtmlToken {
 export interface HtmlParseResult {
   nodes: SyntaxNode[]
   diagnostics: Diagnostic[]
-}
-
-function createPoint(line: number, column: number, offset: number): SourcePoint {
-  return { line, column, offset }
-}
-
-function createSpan(start: SourcePoint, end: SourcePoint): SourceSpan {
-  return { start, end }
 }
 
 /**
@@ -326,27 +319,30 @@ export class HtmlParser {
       const content = token.text.trim()
       if (!content) return undefined
       return { 
-        kind: 'Text', 
+        type: 'Text', 
         attrs: { value: content },
-        span: token.span
+        span: { start: token.span.start.offset, end: token.span.end.offset, ctxt: 0 },
+        loc: token.span,
       }
     }
     
     if (token.type === 'comment') {
       this.advance()
       return {
-        kind: 'Comment',
+        type: 'Comment',
         attrs: { value: token.text },
-        span: token.span
+        span: { start: token.span.start.offset, end: token.span.end.offset, ctxt: 0 },
+        loc: token.span,
       }
     }
 
     if (token.type === 'doctype') {
       this.advance()
       return {
-        kind: 'Doctype',
+        type: 'Doctype',
         attrs: { value: token.text },
-        span: token.span
+        span: { start: token.span.start.offset, end: token.span.end.offset, ctxt: 0 },
+        loc: token.span,
       }
     }
 
@@ -388,10 +384,11 @@ export class HtmlParser {
     if (this.peek().type === 'selfClosingTagClose') {
       const closeToken = this.consume('selfClosingTagClose')!
       return {
-        kind: 'Element',
+        type: 'Element',
         name: tagName,
         attrs,
-        span: { start: startToken.span.start, end: closeToken.span.end }
+        span: { start: startToken.span.start.offset, end: closeToken.span.end.offset, ctxt: 0 },
+        loc: { start: startToken.span.start, end: closeToken.span.end },
       }
     }
 
@@ -441,18 +438,20 @@ export class HtmlParser {
       const endToken = this.consume('startTagClose')
       
       return {
-        kind: 'Element',
+        type: 'Element',
         name: tagName,
         attrs,
         children,
-        span: { start: startToken.span.start, end: endToken?.span.end ?? this.peek(-1).span.end }
+        span: { start: startToken.span.start.offset, end: (endToken?.span.end ?? this.peek(-1).span.end).offset, ctxt: 0 },
+        loc: { start: startToken.span.start, end: endToken?.span.end ?? this.peek(-1).span.end },
       }
     } else {
       return {
-        kind: 'Element',
+        type: 'Element',
         name: tagName,
         attrs,
-        span: { start: startToken.span.start, end: this.peek(-1).span.end }
+        span: { start: startToken.span.start.offset, end: this.peek(-1).span.end.offset, ctxt: 0 },
+        loc: { start: startToken.span.start, end: this.peek(-1).span.end },
       }
     }
   }

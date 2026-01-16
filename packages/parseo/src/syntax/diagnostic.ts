@@ -18,12 +18,3 @@ export interface Diagnostic {
   span?: SourceSpan
 }
 
-/**
- * 创建诊断信息对象。
- *
- * @param params - 诊断字段
- * @returns 诊断对象
- */
-export function createDiagnostic(params: Diagnostic): Diagnostic {
-  return params
-}

@@ -1,19 +1,14 @@
 import type { Diagnostic, SourcePoint, SourceSpan } from '../syntax/diagnostic'
 
-export type TokenType =
-  | 'identifier'
-  | 'number'
-  | 'string'
-  | 'arrow'
-  | 'braceOpen'
-  | 'braceClose'
-  | 'equals'
-  | 'newline'
-  | 'end'
+export type TokenCategory = 'identifier' | 'literal' | 'operator' | 'delimiter' | 'lineBreak' | 'end' | 'unknown'
+
+export type TokenKind = string
 
 export interface Token {
-  type: TokenType
+  category: TokenCategory
+  kind?: TokenKind
   text: string
+  value?: unknown
   span: SourceSpan
 }
 
@@ -22,32 +17,125 @@ export interface TokenizeResult {
   diagnostics: Diagnostic[]
 }
 
-class TextTokenizer {
+export interface LanguageProfile {
+  name: string
+  whitespace?: { chars: string[] }
+  lineBreak?: { chars: string[] }
+  comments?: { line?: Array<{ start: string }>; block?: Array<{ start: string; end: string }> }
+  delimiters?: Array<{ text: string; kind: TokenKind }>
+  operators?: Array<{ text: string; kind: TokenKind }>
+  literals?: {
+    string?: Array<{ quote: string; escapes?: Record<string, string> }>
+    number?: {
+      allowFloat?: boolean
+      allowExponent?: boolean
+      allowSeparator?: boolean
+      allowHex?: boolean
+      allowBinary?: boolean
+      allowOctal?: boolean
+    }
+  }
+  identifier?: {
+    isStart(char: string): boolean
+    isPart(char: string): boolean
+  }
+  unknown?: { emitToken?: boolean }
+}
+
+function createDefaultEscapes(quote: string): Record<string, string> {
+  return { n: '\n', t: '\t', r: '\r', [quote]: quote, '\\': '\\' }
+}
+
+export const ParseoDslProfile: LanguageProfile = {
+  name: 'parseo-dsl',
+  whitespace: { chars: [' ', '\t', '\r'] },
+  lineBreak: { chars: ['\n'] },
+  comments: { line: [{ start: '#' }, { start: '//' }], block: [{ start: '/*', end: '*/' }] },
+  delimiters: [
+    { text: '{', kind: 'braceOpen' },
+    { text: '}', kind: 'braceClose' },
+    { text: '=', kind: 'equals' },
+  ],
+  operators: [{ text: '->', kind: 'arrow' }],
+  literals: {
+    string: [
+      { quote: '"', escapes: createDefaultEscapes('"') },
+      { quote: "'", escapes: createDefaultEscapes("'") },
+    ],
+    number: {
+      allowFloat: true,
+      allowExponent: true,
+      allowSeparator: true,
+      allowHex: true,
+      allowBinary: true,
+      allowOctal: true,
+    },
+  },
+  identifier: {
+    isStart: (char) => /[A-Za-z_]/.test(char),
+    isPart: (char) => /[A-Za-z0-9_-]/.test(char),
+  },
+  unknown: { emitToken: true },
+}
+
+type NumberRule = {
+  allowFloat: boolean
+  allowExponent: boolean
+  allowSeparator: boolean
+  allowHex: boolean
+  allowBinary: boolean
+  allowOctal: boolean
+}
+
+class ProfileLexer {
   private readonly text: string
+  private readonly profile: LanguageProfile
   private readonly diagnostics: Diagnostic[] = []
   private readonly tokens: Token[] = []
+  private readonly whitespaceSet: Set<string>
+  private readonly lineBreakSet: Set<string>
+  private readonly delimiterList: Array<{ text: string; kind: TokenKind }>
+  private readonly operatorList: Array<{ text: string; kind: TokenKind }>
+  private readonly stringRuleList: Array<{ quote: string; escapes: Record<string, string> }>
+  private readonly numberRule: NumberRule
 
   private index = 0
   private line = 1
   private column = 1
 
-  constructor(text: string) {
+  constructor(text: string, profile: LanguageProfile) {
     this.text = text
+    this.profile = profile
+    this.whitespaceSet = new Set(profile.whitespace?.chars ?? [])
+    this.lineBreakSet = new Set(profile.lineBreak?.chars ?? ['\n'])
+    this.delimiterList = [...(profile.delimiters ?? [])].sort((a, b) => b.text.length - a.text.length)
+    this.operatorList = [...(profile.operators ?? [])].sort((a, b) => b.text.length - a.text.length)
+    this.stringRuleList = (profile.literals?.string ?? []).map((rule) => ({
+      quote: rule.quote,
+      escapes: rule.escapes ?? createDefaultEscapes(rule.quote),
+    }))
+    this.numberRule = {
+      allowFloat: profile.literals?.number?.allowFloat ?? false,
+      allowExponent: profile.literals?.number?.allowExponent ?? false,
+      allowSeparator: profile.literals?.number?.allowSeparator ?? false,
+      allowHex: profile.literals?.number?.allowHex ?? false,
+      allowBinary: profile.literals?.number?.allowBinary ?? false,
+      allowOctal: profile.literals?.number?.allowOctal ?? false,
+    }
   }
 
   tokenize(): TokenizeResult {
     while (this.index < this.text.length) {
       if (this.skipWhitespace()) continue
-      if (this.readNewline()) continue
-      if (this.skipComment()) continue
+      if (this.readLineBreak()) continue
+      if (this.skipLineComment()) continue
+      if (this.skipBlockComment()) continue
 
       const hasToken =
-        this.readSingle('{', 'braceOpen') ||
-        this.readSingle('}', 'braceClose') ||
-        this.readSingle('=', 'equals') ||
-        this.readArrow() ||
-        this.readString() ||
-        this.readNumber() ||
+        this.readOperator() ||
+        this.readDelimiter() ||
+        this.readStringLiteral() ||
+        this.readNumberLiteral() ||
         this.readIdentifier()
 
       if (hasToken) continue
@@ -74,7 +162,7 @@ class TextTokenizer {
   private advanceChar(): string {
     const char = this.currentChar()
     this.index += 1
-    if (char === '\n') {
+    if (this.lineBreakSet.has(char)) {
       this.line += 1
       this.column = 1
       return char
@@ -83,8 +171,15 @@ class TextTokenizer {
     return char
   }
 
-  private addToken(type: TokenType, tokenText: string, start: SourcePoint, end: SourcePoint): void {
-    this.tokens.push({ type, text: tokenText, span: createSpan(start, end) })
+  private addToken(
+    category: TokenCategory,
+    tokenText: string,
+    start: SourcePoint,
+    end: SourcePoint,
+    kind?: TokenKind,
+    value?: unknown,
+  ): void {
+    this.tokens.push({ category, kind, text: tokenText, value, span: createSpan(start, end) })
   }
 
   private addError(message: string, span?: SourceSpan): void {
@@ -93,130 +188,197 @@ class TextTokenizer {
 
   private skipWhitespace(): boolean {
     const char = this.currentChar()
-    if (char === ' ' || char === '\t' || char === '\r') {
-      this.advanceChar()
+    if (!this.whitespaceSet.has(char)) return false
+    this.advanceChar()
+    return true
+  }
+
+  private readLineBreak(): boolean {
+    const char = this.currentChar()
+    if (!this.lineBreakSet.has(char)) return false
+    const start = this.point()
+    this.advanceChar()
+    const end = this.point()
+    this.addToken('lineBreak', char, start, end, 'newline')
+    return true
+  }
+
+  private skipLineComment(): boolean {
+    const commentRules = this.profile.comments?.line ?? []
+    for (const rule of commentRules) {
+      if (!this.startsWith(rule.start)) continue
+      this.advanceText(rule.start)
+      while (this.index < this.text.length && !this.lineBreakSet.has(this.currentChar())) this.advanceChar()
       return true
     }
     return false
   }
 
-  private readNewline(): boolean {
-    if (this.currentChar() !== '\n') return false
-    const start = this.point()
-    this.advanceChar()
-    const end = this.point()
-    this.addToken('newline', '\n', start, end)
-    return true
-  }
-
-  private skipComment(): boolean {
-    const char = this.currentChar()
-    if (char === '#') return this.skipCommentLine()
-    if (char === '/' && this.nextChar() === '/') return this.skipCommentLine()
+  private skipBlockComment(): boolean {
+    const commentRules = this.profile.comments?.block ?? []
+    for (const rule of commentRules) {
+      if (!this.startsWith(rule.start)) continue
+      const start = this.point()
+      this.advanceText(rule.start)
+      while (this.index < this.text.length && !this.startsWith(rule.end)) this.advanceChar()
+      if (this.startsWith(rule.end)) this.advanceText(rule.end)
+      else this.addError('Unclosed block comment', createSpan(start, this.point()))
+      return true
+    }
     return false
   }
 
-  private skipCommentLine(): boolean {
-    while (this.index < this.text.length && this.currentChar() !== '\n') this.advanceChar()
-    return true
+  private readDelimiter(): boolean {
+    for (const rule of this.delimiterList) {
+      if (!this.startsWith(rule.text)) continue
+      const start = this.point()
+      this.advanceText(rule.text)
+      const end = this.point()
+      this.addToken('delimiter', rule.text, start, end, rule.kind)
+      return true
+    }
+    return false
   }
 
-  private readSingle(char: string, type: TokenType): boolean {
-    if (this.currentChar() !== char) return false
+  private readOperator(): boolean {
+    for (const rule of this.operatorList) {
+      if (!this.startsWith(rule.text)) continue
+      const start = this.point()
+      this.advanceText(rule.text)
+      const end = this.point()
+      this.addToken('operator', rule.text, start, end, rule.kind)
+      return true
+    }
+    return false
+  }
+
+  private readStringLiteral(): boolean {
+    const quote = this.currentChar()
+    const rule = this.stringRuleList.find((r) => r.quote === quote)
+    if (!rule) return false
+
     const start = this.point()
     this.advanceChar()
-    const end = this.point()
-    this.addToken(type, char, start, end)
-    return true
-  }
 
-  private readArrow(): boolean {
-    if (this.currentChar() !== '-' || this.nextChar() !== '>') return false
-    const start = this.point()
-    this.advanceChar()
-    this.advanceChar()
-    const end = this.point()
-    this.addToken('arrow', '->', start, end)
-    return true
-  }
-
-  private readString(): boolean {
-    const char = this.currentChar()
-    if (char !== '"' && char !== "'") return false
-    const quote = char
-    const start = this.point()
-    this.advanceChar()
-
-    const value = this.readStringValue(quote, start)
-    if (this.currentChar() === quote) this.advanceChar()
-
-    const end = this.point()
-    this.addToken('string', value, start, end)
-    return true
-  }
-
-  private readStringValue(quote: string, start: SourcePoint): string {
     let value = ''
-    while (this.index < this.text.length && this.currentChar() !== quote) {
+    while (this.index < this.text.length && this.currentChar() !== rule.quote) {
       if (this.currentChar() === '\\') {
         this.advanceChar()
-        value += this.readEscaped(quote)
+        value += this.readEscape(rule.escapes)
         continue
       }
       value += this.advanceChar()
     }
 
-    if (this.currentChar() !== quote) {
-      const span = createSpan(start, this.point())
-      this.addError('Unclosed string literal', span)
-    }
-    return value
+    if (this.currentChar() === rule.quote) this.advanceChar()
+    else this.addError('Unclosed string literal', createSpan(start, this.point()))
+
+    const end = this.point()
+    this.addToken('literal', value, start, end, 'string', value)
+    return true
   }
 
-  private readEscaped(quote: string): string {
+  private readEscape(escapes: Record<string, string>): string {
     const escaped = this.currentChar()
-    const value = this.toEscapedValue(escaped, quote)
-    if (escaped) this.advanceChar()
-    return value
+    if (!escaped) return ''
+    this.advanceChar()
+    return escapes[escaped] ?? escaped
   }
 
-  private toEscapedValue(escaped: string, quote: string): string {
-    if (escaped === 'n') return '\n'
-    if (escaped === 't') return '\t'
-    if (escaped === 'r') return '\r'
-    if (escaped === quote) return quote
-    if (escaped === '\\') return '\\'
-    return escaped
-  }
-
-  private readNumber(): boolean {
+  private readNumberLiteral(): boolean {
     const char = this.currentChar()
     if (!isDigit(char)) return false
 
     const start = this.point()
-    const value = this.readNumberValue()
+    const startOffset = start.offset
+    const base = this.tryReadNumberPrefix()
+    if (base !== 10) {
+      this.readDigitsWithSeparator(base)
+    } else {
+      this.readDigitsWithSeparator(10)
+      if (this.numberRule.allowFloat && this.currentChar() === '.' && isDigit(this.nextChar())) {
+        this.advanceChar()
+        this.readDigitsWithSeparator(10)
+      }
+      if (this.numberRule.allowExponent) this.readExponentPart()
+    }
     const end = this.point()
-    this.addToken('number', value, start, end)
+    const raw = this.text.slice(startOffset, end.offset)
+    const parsed = this.parseNumberValue(raw, base)
+    this.addToken('literal', raw, start, end, 'number', parsed)
     return true
   }
 
-  private readNumberValue(): string {
-    let value = ''
-    while (this.index < this.text.length && isDigit(this.currentChar())) value += this.advanceChar()
-    if (this.currentChar() === '.' && isDigit(this.nextChar())) {
-      value += this.advanceChar()
-      while (this.index < this.text.length && isDigit(this.currentChar())) value += this.advanceChar()
+  private tryReadNumberPrefix(): number {
+    if (this.currentChar() !== '0') return 10
+    const next = this.nextChar()
+    if ((next === 'x' || next === 'X') && this.numberRule.allowHex) {
+      this.advanceChar()
+      this.advanceChar()
+      return 16
     }
-    return value
+    if ((next === 'b' || next === 'B') && this.numberRule.allowBinary) {
+      this.advanceChar()
+      this.advanceChar()
+      return 2
+    }
+    if ((next === 'o' || next === 'O') && this.numberRule.allowOctal) {
+      this.advanceChar()
+      this.advanceChar()
+      return 8
+    }
+    return 10
+  }
+
+  private readDigitsWithSeparator(base: number): void {
+    let hasDigit = false
+    let previousSeparator = false
+    while (this.index < this.text.length) {
+      const char = this.currentChar()
+      if (this.numberRule.allowSeparator && char === '_') {
+        if (!hasDigit || previousSeparator) break
+        previousSeparator = true
+        this.advanceChar()
+        continue
+      }
+      if (!isDigitInBase(char, base)) break
+      hasDigit = true
+      previousSeparator = false
+      this.advanceChar()
+    }
+  }
+
+  private readExponentPart(): void {
+    const char = this.currentChar()
+    if (char !== 'e' && char !== 'E') return
+    const next = this.nextChar()
+    const nextNext = this.nextChar(2)
+    const hasSign = next === '+' || next === '-'
+    const digitAfter = hasSign ? nextNext : next
+    if (!isDigit(digitAfter)) return
+    this.advanceChar()
+    if (hasSign) this.advanceChar()
+    while (isDigit(this.currentChar()) || (this.numberRule.allowSeparator && this.currentChar() === '_')) {
+      this.advanceChar()
+    }
+  }
+
+  private parseNumberValue(raw: string, base: number): number {
+    const normalized = this.numberRule.allowSeparator ? raw.replaceAll('_', '') : raw
+    if (base === 10) return Number(normalized)
+    const noPrefix = normalized.replace(/^0[xX]|^0[bB]|^0[oO]/, '')
+    return Number.parseInt(noPrefix, base)
   }
 
   private readIdentifier(): boolean {
+    const identifier = this.profile.identifier
+    if (!identifier) return false
     const char = this.currentChar()
-    if (!isIdentifierStart(char)) return false
+    if (!identifier.isStart(char)) return false
 
     const start = this.point()
     let value = ''
-    while (this.index < this.text.length && isIdentifierPart(this.currentChar())) value += this.advanceChar()
+    while (this.index < this.text.length && identifier.isPart(this.currentChar())) value += this.advanceChar()
     const end = this.point()
     this.addToken('identifier', value, start, end)
     return true
@@ -229,6 +391,16 @@ class TextTokenizer {
     const end = this.point()
     const span = createSpan(start, end)
     this.addError(`Unexpected character: ${JSON.stringify(char)}`, span)
+    const emitToken = this.profile.unknown?.emitToken ?? true
+    if (emitToken) this.addToken('unknown', char, start, end)
+  }
+
+  private startsWith(value: string): boolean {
+    return this.text.startsWith(value, this.index)
+  }
+
+  private advanceText(value: string): void {
+    for (let i = 0; i < value.length; i += 1) this.advanceChar()
   }
 }
 
@@ -240,24 +412,18 @@ function createSpan(start: SourcePoint, end: SourcePoint): SourceSpan {
   return { start, end }
 }
 
-function isIdentifierStart(char: string): boolean {
-  return /[A-Za-z_]/.test(char)
-}
-
-function isIdentifierPart(char: string): boolean {
-  return /[A-Za-z0-9_-]/.test(char)
-}
-
 function isDigit(char: string): boolean {
   return /[0-9]/.test(char)
 }
 
-/**
- * 将 DSL 文本切分为 token 流，并附带源位置与诊断信息。
- *
- * @param text - DSL 源文本
- * @returns Token 流与诊断信息（不抛异常）
- */
-export function tokenizeText(text: string): TokenizeResult {
-  return new TextTokenizer(text).tokenize()
+function isDigitInBase(char: string, base: number): boolean {
+  if (base === 2) return char === '0' || char === '1'
+  if (base === 8) return /[0-7]/.test(char)
+  if (base === 10) return /[0-9]/.test(char)
+  if (base === 16) return /[0-9a-fA-F]/.test(char)
+  return false
+}
+
+export function tokenizeText(text: string, profile: LanguageProfile = ParseoDslProfile): TokenizeResult {
+  return new ProfileLexer(text, profile).tokenize()
 }

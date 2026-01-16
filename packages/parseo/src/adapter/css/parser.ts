@@ -1,5 +1,6 @@
 import type { Diagnostic, SourcePoint, SourceSpan } from '../../syntax/diagnostic'
 import type { SyntaxNode } from '../../syntax/node'
+import { createPoint, createSpan } from '../shared/source'
 
 export type CssTokenType =
   | 'selector'
@@ -17,14 +18,6 @@ export interface CssToken {
   type: CssTokenType
   text: string
   span: SourceSpan
-}
-
-function createPoint(line: number, column: number, offset: number): SourcePoint {
-  return { line, column, offset }
-}
-
-function createSpan(start: SourcePoint, end: SourcePoint): SourceSpan {
-  return { start, end }
 }
 
 class CssTokenizer {
@@ -224,10 +217,11 @@ export class CssParser {
     const end = closeToken?.span.end || this.peek(-1).span.end
     
     return {
-      kind: 'RuleSet',
+      type: 'RuleSet',
       attrs: { selector },
       children,
-      span: { start, end }
+      span: { start: start.offset, end: end.offset, ctxt: 0 },
+      loc: { start, end },
     }
   }
 
@@ -255,9 +249,10 @@ export class CssParser {
     const end = this.peek(-1).span.end
     
     return {
-      kind: 'Declaration',
+      type: 'Declaration',
       attrs: { property, value: value.trim() },
-      span: { start, end }
+      span: { start: start.offset, end: end.offset, ctxt: 0 },
+      loc: { start, end },
     }
   }
 }

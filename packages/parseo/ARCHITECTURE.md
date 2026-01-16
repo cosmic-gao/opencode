@@ -18,7 +18,6 @@ Parseo 按“输入 → 语法 → 中立模型 → 语义”组织：
 - neutral：NeutralDocument/Entity/Link，是可被多 DSL/多语义共享的中立模型
 - model：ModelBuilder 将 SyntaxNode 转换为 NeutralDocument；linker 校验引用关系；registry/loader 提供可插拔机制
 - semantic：SemanticPlugin 定义语义扩展点；runner 提供依赖排序与执行；loader 支持动态加载
-- builtin：内置参考实现（flow builder + 演示语义插件）
 
 对应源码目录可直接从 [src/index.ts](file:///e:/opencode/packages/parseo/src/index.ts) 的导出看到模块边界。
 
@@ -26,7 +25,7 @@ Parseo 按“输入 → 语法 → 中立模型 → 语义”组织：
 
 ### SyntaxNode（语法树）
 
-语法层只表达结构：`kind/name/attrs/children/span`。解析器不做领域校验，也不做引用解析。
+语法层只表达结构：`type/name/attrs/children/span/loc`。解析器不做领域校验，也不做引用解析。
 
 - 入口：`parseText(text)` → `ParseResult`
 - 文件：src/parser + src/syntax
@@ -80,21 +79,6 @@ Parseo 按“输入 → 语法 → 中立模型 → 语义”组织：
 4. `linkDocument`：NeutralDocument → 引用校验诊断
 5. `SemanticRunner.run/runAll`：NeutralDocument → 语义结果（不以抛异常作为正常控制流）
 
-## 内置参考实现
-
-### FlowBuilder（flow DSL）
-
-`flow { node ...; edge A -> B }` 解析后，经 FlowBuilder 映射为：
-
-- entity：`flow`（文档级），`node`（流程节点）
-- link：`edge`（from/to）
-
-### builtin 语义插件
-
-- validation：调用 `linkDocument` 做引用校验
-- state-machine：将 edge 解释为顺序状态机（演示）
-- codegen：生成 TypeScript 骨架（演示）
-
 ## 边界与约束
 
 - 解析器只做结构：不引入业务规则、不做引用解析
@@ -104,7 +88,7 @@ Parseo 按“输入 → 语法 → 中立模型 → 语义”组织：
 
 ## 如何新增一个 DSL（简要）
 
-1. 设计 SyntaxNode 的 kind/name/attrs 约定
+1. 设计 SyntaxNode 的 type/name/attrs 约定
 2. 新增一个 ModelBuilder，把节点映射为 NeutralDocument
 3. 根据需要实现 SemanticPlugin（校验/生成/执行等）
 4. 通过 loader 动态加载或 runner/builder registry 注册
