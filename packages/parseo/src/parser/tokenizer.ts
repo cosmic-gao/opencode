@@ -364,7 +364,7 @@ class ProfileLexer {
   }
 
   private parseNumberValue(raw: string, base: number): number {
-    const normalized = this.numberRule.allowSeparator ? raw.replaceAll('_', '') : raw
+    const normalized = this.numberRule.allowSeparator ? raw.replace(/_/g, '') : raw
     if (base === 10) return Number(normalized)
     const noPrefix = normalized.replace(/^0[xX]|^0[bB]|^0[oO]/, '')
     return Number.parseInt(noPrefix, base)

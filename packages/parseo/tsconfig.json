@@ -9,8 +9,7 @@
     "lib": ["DOM"]
   },
   "include": [
-    "src/**/*.ts",
-    "examples/**/*.ts"
+    "src/**/*.ts"
   ],
   "exclude": [
     "node_modules",

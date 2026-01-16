@@ -517,22 +517,69 @@ export class JsParser {
   private parseVariableDeclaration(): SyntaxNode {
     const start = this.peek().span.start
     let text = ''
+    const children: SyntaxNode[] = []
+    let kind: string | undefined
     
     // consume keyword
     if (this.match('keyword', 'const') || this.match('keyword', 'let') || this.match('keyword', 'var')) {
-        this.advance()
+        kind = this.advance().text
     }
     
-    // consume until semicolon or newline
     while (!this.isEnd() && !this.match('punctuation', ';')) {
-      // 检查是否有 JSX
-      if (this.match('jsxTagOpen')) {
-          // 调用 parseJsxElement 完整消耗 JSX 结构，防止内部符号干扰解析
-          this.parseJsxElement()
-          // 不做任何操作，只是消耗掉 tokens，文本稍后统一从 source 截取
-      } else {
-          this.advance()
+      if (this.match('punctuation', ',')) {
+        this.advance()
+        continue
       }
+
+      const declaratorStart = this.peek().span.start
+      if (!this.match('identifier')) {
+        const startIndex = this.index
+        while (!this.isEnd() && !this.match('punctuation', ',') && !this.match('punctuation', ';')) {
+          if (this.match('jsxTagOpen')) {
+            this.parseJsxElement()
+            continue
+          }
+          this.advance()
+        }
+        const endPoint = this.previous().span.end
+        const raw = this.getSource(declaratorStart, endPoint).trim()
+        const attrs: Record<string, MetaValue> = { text: raw }
+        if (kind) attrs.kind = kind
+        children.push({
+          type: 'VariableDeclarator',
+          attrs,
+          span: { start: declaratorStart.offset, end: endPoint.offset, ctxt: 0 },
+          loc: { start: declaratorStart, end: endPoint },
+        })
+        if (this.index === startIndex) this.advance()
+        continue
+      }
+
+      const idToken = this.advance()
+      const idNode: SyntaxNode = {
+        type: 'Identifier',
+        attrs: { name: idToken.text },
+        span: { start: idToken.span.start.offset, end: idToken.span.end.offset, ctxt: 0 },
+        loc: idToken.span,
+      }
+
+      let initNode: SyntaxNode | undefined
+      if (this.match('operator', '=')) {
+        this.advance()
+        initNode = this.parseInitializer()
+      }
+
+      const endPoint = (initNode?.loc?.end ?? idToken.span.end)
+      const declaratorAttrs: Record<string, MetaValue> = { id: idToken.text }
+      if (kind) declaratorAttrs.kind = kind
+      const declarator: SyntaxNode = {
+        type: 'VariableDeclarator',
+        attrs: declaratorAttrs,
+        children: initNode ? [idNode, initNode] : [idNode],
+        span: { start: declaratorStart.offset, end: endPoint.offset, ctxt: 0 },
+        loc: { start: declaratorStart, end: endPoint },
+      }
+      children.push(declarator)
     }
     
     if (this.match('punctuation', ';')) {
@@ -543,9 +590,86 @@ export class JsParser {
     // 使用 source 截取完整文本，包括 JSX 部分
     text = this.getSource(start, end)
     
+    const attrs: Record<string, MetaValue> = { text: text.trim() }
+    if (kind) attrs.kind = kind
     return {
       type: 'VariableStatement',
-      attrs: { text: text.trim() },
+      attrs,
+      children: children.length ? children : undefined,
+      span: { start: start.offset, end: end.offset, ctxt: 0 },
+      loc: { start, end },
+    }
+  }
+
+  private parseInitializer(): SyntaxNode {
+    const start = this.peek().span.start
+    if (this.match('string')) {
+      const token = this.advance()
+      const value = token.text.replace(/^['"`]|['"`]$/g, '')
+      return {
+        type: 'Literal',
+        attrs: { kind: 'string', value },
+        span: { start: token.span.start.offset, end: token.span.end.offset, ctxt: 0 },
+        loc: token.span,
+      }
+    }
+    if (this.match('number')) {
+      const token = this.advance()
+      return {
+        type: 'Literal',
+        attrs: { kind: 'number', value: Number(token.text) },
+        span: { start: token.span.start.offset, end: token.span.end.offset, ctxt: 0 },
+        loc: token.span,
+      }
+    }
+    if (this.match('identifier')) {
+      const token = this.advance()
+      return {
+        type: 'Identifier',
+        attrs: { name: token.text },
+        span: { start: token.span.start.offset, end: token.span.end.offset, ctxt: 0 },
+        loc: token.span,
+      }
+    }
+    if (this.match('jsxTagOpen')) {
+      return this.parseJsxElement() ?? this.parseExpressionText(start)
+    }
+    return this.parseExpressionText(start)
+  }
+
+  private parseExpressionText(start: SourcePoint): SyntaxNode {
+    const startIndex = this.index
+    let paren = 0
+    let square = 0
+    let brace = 0
+    while (!this.isEnd()) {
+      if (paren === 0 && square === 0 && brace === 0 && (this.match('punctuation', ',') || this.match('punctuation', ';'))) break
+      if (this.match('punctuation', '(')) paren += 1
+      else if (this.match('punctuation', ')')) paren = Math.max(0, paren - 1)
+      else if (this.match('punctuation', '[')) square += 1
+      else if (this.match('punctuation', ']')) square = Math.max(0, square - 1)
+      else if (this.match('punctuation', '{')) brace += 1
+      else if (this.match('punctuation', '}')) brace = Math.max(0, brace - 1)
+      if (this.match('jsxTagOpen')) {
+        this.parseJsxElement()
+        continue
+      }
+      this.advance()
+    }
+    if (this.index === startIndex) {
+      const token = this.advance()
+      return {
+        type: 'ExpressionText',
+        attrs: { text: token.text },
+        span: { start: token.span.start.offset, end: token.span.end.offset, ctxt: 0 },
+        loc: token.span,
+      }
+    }
+    const end = this.previous().span.end
+    const raw = this.getSource(start, end).trim()
+    return {
+      type: 'ExpressionText',
+      attrs: { text: raw },
       span: { start: start.offset, end: end.offset, ctxt: 0 },
       loc: { start, end },
     }
