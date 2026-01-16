@@ -4,6 +4,7 @@ import { HtmlAdapter } from '../src/adapter/html'
 import { VueAdapter } from '../src/adapter/vue'
 import { JavascriptAdapter } from '../src/adapter/javascript'
 import { TypescriptAdapter } from '../src/adapter/typescript'
+import { CssAdapter } from '../src/adapter/css'
 import type { Adapter } from '../src/adapter/adapter'
 
 // 导入原始文本
@@ -11,17 +12,20 @@ import nativeHtml from './presets/native.html?raw'
 import sfcVue from './presets/sfc.vue?raw'
 import demoJs from './presets/demo.js?raw'
 import demoTs from './presets/demo.ts?raw'
+import demoCss from './presets/demo.css?raw'
 
 const htmlAdapter = new HtmlAdapter()
 const vueAdapter = new VueAdapter()
 const jsAdapter = new JavascriptAdapter()
 const tsAdapter = new TypescriptAdapter()
+const cssAdapter = new CssAdapter()
 
 const presets = {
   'native-html': { content: nativeHtml, adapter: htmlAdapter },
   'sfc-vue': { content: sfcVue, adapter: vueAdapter },
   'demo-js': { content: demoJs, adapter: jsAdapter },
   'demo-ts': { content: demoTs, adapter: tsAdapter },
+  'demo-css': { content: demoCss, adapter: cssAdapter },
 }
 
 type AppElements = {

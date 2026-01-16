@@ -1,150 +1,7 @@
-import type { Diagnostic, SourcePoint, SourceSpan } from '../../syntax/diagnostic'
+import type { Diagnostic } from '../../syntax/diagnostic'
 import type { SyntaxNode } from '../../syntax/node'
-import { createPoint, createSpan } from '../shared/source'
-
-export type CssTokenType =
-  | 'selector'
-  | 'braceOpen' // {
-  | 'braceClose' // }
-  | 'colon' // :
-  | 'semicolon' // ;
-  | 'property'
-  | 'value'
-  | 'comment'
-  | 'whitespace'
-  | 'eof'
-
-export interface CssToken {
-  type: CssTokenType
-  text: string
-  span: SourceSpan
-}
-
-class CssTokenizer {
-  private readonly text: string
-  private readonly tokens: CssToken[] = []
-  private readonly diagnostics: Diagnostic[] = []
-  
-  private index = 0
-  private line = 1
-  private column = 1
-
-  constructor(text: string) {
-    this.text = text
-  }
-
-  tokenize(): { tokens: CssToken[]; diagnostics: Diagnostic[] } {
-    while (this.index < this.text.length) {
-      if (this.readWhitespace()) continue
-      if (this.readComment()) continue
-      if (this.readPunctuation()) continue
-      
-      // 简单处理：非标点非空白的连续字符视为标识符（可能用于选择器、属性名、属性值）
-      // 这里不区分那么细，由 parser 决定
-      this.readIdentifier()
-    }
-    
-    this.addToken('eof', '', this.point(), this.point())
-    return { tokens: this.tokens, diagnostics: this.diagnostics }
-  }
-
-  private point(): SourcePoint {
-    return createPoint(this.line, this.column, this.index)
-  }
-
-  private advanceChar(): string {
-    const char = this.text[this.index]
-    this.index++
-    if (char === '\n') {
-      this.line++
-      this.column = 1
-    } else {
-      this.column++
-    }
-    return char!
-  }
-  
-  private peek(offset = 0): string {
-    return this.text[this.index + offset] || ''
-  }
-
-  private addToken(type: CssTokenType, text: string, start: SourcePoint, end: SourcePoint) {
-    this.tokens.push({ type, text, span: createSpan(start, end) })
-  }
-
-  private readWhitespace(): boolean {
-    if (!/\s/.test(this.peek())) return false
-    while (/\s/.test(this.peek())) {
-      this.advanceChar()
-    }
-    return true
-  }
-
-  private readComment(): boolean {
-    if (this.peek() === '/' && this.peek(1) === '*') {
-      const start = this.point()
-      let text = ''
-      this.advanceChar(); this.advanceChar(); text += '/*'
-      
-      while (this.index < this.text.length && !(this.peek() === '*' && this.peek(1) === '/')) {
-        text += this.advanceChar()
-      }
-      
-      if (this.index < this.text.length) {
-        this.advanceChar(); this.advanceChar(); text += '*/'
-      }
-      
-      const end = this.point()
-      this.addToken('comment', text, start, end)
-      return true
-    }
-    return false
-  }
-
-  private readPunctuation(): boolean {
-    const char = this.peek()
-    const start = this.point()
-    
-    if (char === '{') {
-      this.advanceChar()
-      this.addToken('braceOpen', '{', start, this.point())
-      return true
-    }
-    if (char === '}') {
-      this.advanceChar()
-      this.addToken('braceClose', '}', start, this.point())
-      return true
-    }
-    if (char === ':') {
-      this.advanceChar()
-      this.addToken('colon', ':', start, this.point())
-      return true
-    }
-    if (char === ';') {
-      this.advanceChar()
-      this.addToken('semicolon', ';', start, this.point())
-      return true
-    }
-    return false
-  }
-
-  private readIdentifier(): void {
-    const start = this.point()
-    let text = ''
-    // 读取直到遇到标点或空白
-    while (this.index < this.text.length && !/[\s{}:;]/.test(this.peek()) && !(this.peek() === '/' && this.peek(1) === '*')) {
-      text += this.advanceChar()
-    }
-    // 如果是空的（例如只剩 EOF），跳过
-    if (text) {
-      // 暂时统称为 value，parser 会根据上下文重命名
-      this.addToken('value', text, start, this.point())
-    } else if (this.index < this.text.length) {
-        // 避免死循环，吞掉未知字符
-        this.advanceChar()
-    }
-  }
-}
+import type { CssToken, CssTokenType } from './lexer'
+import { CssLexer } from './lexer'
 
 export class CssParser {
   private tokens: CssToken[] = []
@@ -152,18 +9,24 @@ export class CssParser {
   private diagnostics: Diagnostic[] = []
 
   parse(text: string): { nodes: SyntaxNode[]; diagnostics: Diagnostic[] } {
-    const tokenizer = new CssTokenizer(text)
-    const result = tokenizer.tokenize()
-    this.tokens = result.tokens.filter(t => t.type !== 'comment') // 暂忽略注释
+    const lexer = new CssLexer(text)
+    const result = lexer.tokenize()
+    this.tokens = result.tokens.filter((t) => t.type !== 'comment')
     this.diagnostics = result.diagnostics
     this.index = 0
 
     const nodes: SyntaxNode[] = []
     
     while (!this.isEnd()) {
-      const node = this.parseRule()
-      if (node) nodes.push(node)
-      else this.advance()
+      this.skipWhitespace()
+      if (this.isEnd()) break
+
+      const node = this.consumeRule()
+      if (node) {
+        nodes.push(node)
+        continue
+      }
+      this.advance()
     }
 
     return { nodes, diagnostics: this.diagnostics }
@@ -194,28 +57,64 @@ export class CssParser {
     return undefined
   }
 
-  private parseRule(): SyntaxNode | undefined {
-    // Selector
+  private consumeRule(): SyntaxNode | undefined {
+    if (this.peek().type === 'atKeyword') return this.consumeAtRule()
+    return this.consumeQualifiedRule()
+  }
+
+  private consumeAtRule(): SyntaxNode | undefined {
+    const at = this.consume('atKeyword')
+    if (!at || at.type !== 'atKeyword') return undefined
+
+    const start = at.span.start
+    const name = at.value
+    const preludeTokens: CssToken[] = []
+    while (!this.isEnd()) {
+      const t = this.peek()
+      if (t.type === 'semicolon' || t.type === 'braceOpen') break
+      preludeTokens.push(this.advance())
+    }
+    const prelude = serializeTokens(preludeTokens).trim()
+
+    if (this.consume('semicolon')) {
+      const end = this.peek(-1).span.end
+      return {
+        type: 'AtRule',
+        attrs: { name, prelude },
+        span: { start: start.offset, end: end.offset, ctxt: 0 },
+        loc: { start, end },
+      }
+    }
+
+    if (!this.consume('braceOpen')) return undefined
+    const children = this.consumeDeclarationList()
+    const close = this.consume('braceClose')
+    const end = close?.span.end ?? this.peek(-1).span.end
+
+    return {
+      type: 'AtRule',
+      attrs: { name, prelude },
+      children,
+      span: { start: start.offset, end: end.offset, ctxt: 0 },
+      loc: { start, end },
+    }
+  }
+
+  private consumeQualifiedRule(): SyntaxNode | undefined {
     const start = this.peek().span.start
-    let selector = ''
-    while (!this.isEnd() && !this.match('braceOpen')) {
-      selector += this.advance().text + ' '
+    const preludeTokens: CssToken[] = []
+    while (!this.isEnd() && this.peek().type !== 'braceOpen' && this.peek().type !== 'eof') {
+      const t = this.peek()
+      if (t.type === 'semicolon') return undefined
+      preludeTokens.push(this.advance())
     }
-    selector = selector.trim()
-    
+    const selector = serializeTokens(preludeTokens).trim()
     if (!selector || !this.consume('braceOpen')) return undefined
-    
-    // Declarations
-    const children: SyntaxNode[] = []
-    while (!this.isEnd() && !this.match('braceClose')) {
-      const decl = this.parseDeclaration()
-      if (decl) children.push(decl)
-      else if (!this.match('braceClose')) this.advance() // skip invalid
-    }
-    
-    const closeToken = this.consume('braceClose')
-    const end = closeToken?.span.end || this.peek(-1).span.end
-    
+
+    const children = this.consumeDeclarationList()
+    const close = this.consume('braceClose')
+    const end = close?.span.end ?? this.peek(-1).span.end
+
     return {
       type: 'RuleSet',
       attrs: { selector },
@@ -225,34 +124,63 @@ export class CssParser {
     }
   }
 
-  private parseDeclaration(): SyntaxNode | undefined {
-    if (this.match('semicolon')) {
+  private consumeDeclarationList(): SyntaxNode[] {
+    const children: SyntaxNode[] = []
+    while (!this.isEnd() && !this.match('braceClose')) {
+      this.skipWhitespace()
+      if (this.match('semicolon')) {
         this.advance()
-        return undefined
-    }
+        continue
+      }
 
-    const start = this.peek().span.start
-    const propertyToken = this.consume('value')
-    if (!propertyToken) return undefined
-    
-    const property = propertyToken.text
-    
-    if (!this.consume('colon')) return undefined
-    
-    let value = ''
-    while (!this.isEnd() && !this.match('semicolon') && !this.match('braceClose')) {
-      value += this.advance().text + ' '
+      const decl = this.consumeDeclaration()
+      if (decl) {
+        children.push(decl)
+        continue
+      }
+
+      this.recoverBadDeclaration()
     }
-    
-    this.consume('semicolon') // 可选
-    
+    return children
+  }
+
+  private consumeDeclaration(): SyntaxNode | undefined {
+    const start = this.peek().span.start
+    const propertyToken = this.consume('ident')
+    if (!propertyToken || propertyToken.type !== 'ident') return undefined
+
+    const property = propertyToken.value
+    this.skipWhitespace()
+    if (!this.consume('colon')) return undefined
+
+    const valueTokens: CssToken[] = []
+    while (!this.isEnd() && !this.match('semicolon') && !this.match('braceClose')) {
+      valueTokens.push(this.advance())
+    }
+    const value = serializeTokens(valueTokens).trim()
+    this.consume('semicolon')
     const end = this.peek(-1).span.end
-    
+
     return {
       type: 'Declaration',
-      attrs: { property, value: value.trim() },
+      attrs: { property, value },
       span: { start: start.offset, end: end.offset, ctxt: 0 },
       loc: { start, end },
     }
   }
+
+  private skipWhitespace(): void {
+    while (this.peek().type === 'whitespace') this.advance()
+  }
+
+  private recoverBadDeclaration(): void {
+    while (!this.isEnd() && !this.match('semicolon') && !this.match('braceClose')) {
+      this.advance()
+    }
+    if (this.match('semicolon')) this.advance()
+  }
+}
+
+function serializeTokens(tokens: CssToken[]): string {
+  return tokens.map((t) => t.text).join('')
 }

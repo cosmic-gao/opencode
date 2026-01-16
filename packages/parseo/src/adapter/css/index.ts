@@ -1,6 +1,9 @@
 import type { AdaptResult, Adapter } from '../../adapter'
 import { CssParser } from './parser'
 
+export * from './lexer'
+export * from './parser'
+
 /**
  * CSS 适配器。
  *

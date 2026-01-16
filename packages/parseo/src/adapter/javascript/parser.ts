@@ -1,8 +1,9 @@
 import type { Diagnostic, SourcePoint, SourceSpan } from '../../syntax/diagnostic'
 import type { MetaValue, SyntaxNode } from '../../syntax/node'
 import { createPoint, createSpan } from '../shared/source'
+import { JsLexer } from './lexer'
 
-export type JsTokenType =
+type JsTokenType =
   | 'keyword' // import, export, const, let, var, function, return, if, else, for, while
   | 'identifier' // myVar
   | 'string' // "hello", 'world'
@@ -18,7 +19,7 @@ export type JsTokenType =
   | 'whitespace'
   | 'eof'
 
-export interface JsToken {
+interface JsToken {
   type: JsTokenType
   text: string
   span: SourceSpan
@@ -287,6 +288,8 @@ class JsTokenizer {
   }
 }
 
+void JsTokenizer
+
 export class JsParser {
   private tokens: JsToken[] = []
   private index = 0
@@ -295,8 +298,8 @@ export class JsParser {
 
   parse(text: string): { nodes: SyntaxNode[]; diagnostics: Diagnostic[] } {
     this.source = text
-    const tokenizer = new JsTokenizer(text)
-    const result = tokenizer.tokenize()
+    const lexer = new JsLexer(text)
+    const result = lexer.tokenize()
     this.tokens = result.tokens
     this.diagnostics = result.diagnostics
     this.index = 0

@@ -1,0 +1,16 @@
+:root {
+  --primary: #3b82f6;
+}
+
+@media (min-width: 768px) {
+  .card {
+    padding: calc(10px + 2vw);
+    background: url(https://example.com/a.png);
+  }
+}
+
+.card:hover, .card:focus {
+  color: var(--primary);
+  border: 1px solid rgba(0,0,0,0.2);
+}
+

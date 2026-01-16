@@ -1,5 +1,7 @@
 import { JavascriptAdapter } from '../javascript/index'
 
+export * from './ecma/parser'
+
 /**
  * TypeScript 适配器。
  *

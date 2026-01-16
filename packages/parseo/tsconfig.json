@@ -5,10 +5,12 @@
     "types": [
       "bun-types"
     ],
-    "noEmit": true
+    "noEmit": true,
+    "lib": ["DOM"]
   },
   "include": [
-    "src/**/*"
+    "src/**/*.ts",
+    "examples/**/*.ts"
   ],
   "exclude": [
     "node_modules",

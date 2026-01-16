@@ -1,6 +1,12 @@
 import type { AdaptResult, Adapter } from '../../adapter'
 import { JsParser } from './parser'
 
+export * from './lexer'
+export * from './parser'
+export * from './ecma/lexer'
+export * from './ecma/parser'
+export * from './ecma/token'
+
 /**
  * JavaScript 适配器。
  *
