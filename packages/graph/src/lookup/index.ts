@@ -1,10 +1,4 @@
-import type { Edge } from '../model/edge'
-import type { Endpoint } from '../model/endpoint'
-import type { GraphSpec } from '../model/base'
-import type { Input } from '../model/input'
-import type { Node } from '../model/node'
-import type { Output } from '../model/output'
-import type { LookupSnapshot } from './incremental'
+import type { Edge, Endpoint, GraphSpec, Input, Node, Output } from '../model'
 import type { LookupView } from './view'
 
 /**
@@ -46,11 +40,10 @@ export class Lookup implements LookupView {
    * 创建 Lookup 实例。
    *
    * 构造函数会遍历 Graph 的所有节点和边，构建完整的索引映射。
-   * 或者从现有的快照 (Snapshot) 直接恢复索引状态。
    *
-   * @param source - 图定义对象 (GraphSpec) 或 索引快照 (LookupSnapshot)
+   * @param graph - 图定义对象 (GraphSpec)
    */
-  constructor(source: GraphSpec | LookupSnapshot) {
+  constructor(graph: GraphSpec) {
     // 预初始化属性，避免 TS 报错（虽然在 helper 中初始化）
     this.nodeById = new Map()
     this.inputById = new Map()
@@ -68,46 +61,10 @@ export class Lookup implements LookupView {
     this.nodeIncoming = new Map()
     this.nodeOutgoing = new Map()
 
-    if (this.isSnapshot(source)) {
-      this.initFromSnapshot(source)
-    } else {
-      this.initFromDefinition(source)
-    }
-  }
-
-  private isSnapshot(source: GraphSpec | LookupSnapshot): source is LookupSnapshot {
-    return (source as any).nodeById instanceof Map
-  }
-
-  static fromSnapshot(snapshot: LookupSnapshot): Lookup {
-    return new Lookup(snapshot)
+    this.initFromDefinition(graph)
   }
 
   // --- 初始化辅助方法 ---
-
-  private initFromSnapshot(source: LookupSnapshot): void {
-    // 使用 Object.assign 或直接赋值？直接赋值
-    // 必须 cast this to mutable or ignore readonly for init
-    const self = this as any
-    self.nodeById = source.nodeById
-    self.inputById = source.inputById
-    self.outputById = source.outputById
-    self.endpointById = source.endpointById
-    self.edgeById = source.edgeById
-    self.endpointOwners = source.endpointOwners
-    self.nodeEndpoints = source.nodeEndpoints
-    
-    self.inputEdgeIds = source.inputEdges
-    self.outputEdgeIds = source.outputEdges
-    self.nodeIncomingIds = source.nodeIncoming
-    self.nodeOutgoingIds = source.nodeOutgoing
-
-    // 构建最终的 Edge 列表
-    this.finalizeEdges(this.inputEdgeIds, this.inputEdges)
-    this.finalizeEdges(this.outputEdgeIds, this.outputEdges)
-    this.finalizeEdges(this.nodeIncomingIds, this.nodeIncoming)
-    this.finalizeEdges(this.nodeOutgoingIds, this.nodeOutgoing)
-  }
 
   private initFromDefinition(graph: GraphSpec): void {
     this.indexNodes(graph)
@@ -258,3 +215,6 @@ export class Lookup implements LookupView {
     return edges
   }
 }
+
+export * from './incremental'
+export * from './view'

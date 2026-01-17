@@ -1,7 +1,4 @@
-import { GraphSpec } from '../model/base'
-import { Lookup } from '../lookup'
-import type { Node } from '../model/node'
-import type { Edge } from '../model/edge'
+import { GraphSpec, type Edge, type Node } from '../model'
 
 /**
  * 子图 (Subgraph)
@@ -56,17 +53,5 @@ export class Subgraph extends GraphSpec {
     this.edges = Object.freeze([...options.edges])
     this.coreNodeIds = Object.freeze([...options.coreNodeIds])
     this.metadata = options.metadata
-  }
-
-  /**
-   * 创建查表对象。
-   *
-   * 基于子图的节点和边构建独立的 Lookup 索引。
-   *
-   * @protected
-   * @returns 新的 Lookup 实例
-   */
-  protected createLookup(): Lookup {
-    return new Lookup(this)
   }
 }

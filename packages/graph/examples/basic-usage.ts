@@ -1,19 +1,12 @@
-import { Graph } from '../src/model/graph'
-import { Node } from '../src/model/node'
-import { Edge } from '../src/model/edge'
-import { Input } from '../src/model/input'
-import { Output } from '../src/model/output'
-import { GraphWorkspace } from '../src/workspace'
-import { validate } from '../src/validate/validate'
+import { Edge, Graph, GraphStore, GraphWorkspace, Input, Node, Output, analyzeImpact, validate } from '../src'
 
-// 1. 创建初始节点
 const node1 = new Node({
   id: 'node-1',
   type: 'process',
   name: 'Start Node',
   outputs: [
     new Output({ id: 'out-1', name: 'result', contract: { flow: 'string' } })
-  ]
+  ],
 })
 
 const node2 = new Node({
@@ -22,50 +15,53 @@ const node2 = new Node({
   name: 'End Node',
   inputs: [
     new Input({ id: 'in-1', name: 'data', contract: { flow: 'string' } })
-  ]
+  ],
 })
 
-// 2. 创建初始图
 const initialGraph = new Graph({
   nodes: [node1, node2],
-  edges: []
+  edges: [],
 })
 
 console.log('Initial graph created with', initialGraph.nodes.length, 'nodes')
 
-// 3. 初始化工作区
 const workspace = new GraphWorkspace(initialGraph)
 
-// 4. 定义变更：添加一条连接两个节点的边
 const newEdge = new Edge({
-  // id: 'edge-1', // 自动生成 ID (例如 "edge-V1St...")
   source: { nodeId: 'node-1', endpointId: 'out-1' },
-  target: { nodeId: 'node-2', endpointId: 'in-1' }
+  target: { nodeId: 'node-2', endpointId: 'in-1' },
 })
 
-const delta = {
-  addedEdges: [newEdge]
-}
-
-// 5. 应用变更
-console.log('Applying delta: adding edge...')
-const result = workspace.apply(delta, {
-  direction: 'downstream', // 分析受影响的下游节点
-  includeSeeds: true
+console.log('Applying update: adding edge...')
+const result = workspace.update((editor) => {
+  editor.createEdge(newEdge)
 })
 
-// 6. 验证结果
 console.log('New graph has', result.graph.edges.length, 'edge')
 console.log('New edge ID:', newEdge.id)
+console.log('Patch summary:', summarizePatch(result.patch))
 
-// 7. 检查受影响的子图
-console.log('Affected nodes:', result.affected.nodes.map(n => n.id))
-// 预期输出: ['node-1', 'node-2'] (因为种子节点包含在内，且从 node-1 传播到 node-2)
+const store = GraphStore.fromGraph(result.graph)
 
-// 8. 校验图的完整性
-const diagnostics = validate(result.graph)
+const impact = analyzeImpact(store, result.patch, {
+  direction: 'downstream',
+  includeSeeds: true,
+})
+console.log('Affected nodes:', impact.nodes.map((node) => node.id))
+
+const diagnostics = validate(store, result.patch, { matchFlow: true })
 if (diagnostics.length === 0) {
   console.log('Graph is valid!')
 } else {
   console.error('Graph validation failed:', diagnostics)
+}
+
+function summarizePatch(patch: any): Record<string, number> {
+  const nodeAdd = Array.isArray(patch.nodeAdd) ? patch.nodeAdd.length : 0
+  const edgeAdd = Array.isArray(patch.edgeAdd) ? patch.edgeAdd.length : 0
+  const nodeRemove = Array.isArray(patch.nodeRemove) ? patch.nodeRemove.length : 0
+  const edgeRemove = Array.isArray(patch.edgeRemove) ? patch.edgeRemove.length : 0
+  const nodeReplace = Array.isArray(patch.nodeReplace) ? patch.nodeReplace.length : 0
+  const edgeReplace = Array.isArray(patch.edgeReplace) ? patch.edgeReplace.length : 0
+  return { nodeAdd, edgeAdd, nodeRemove, edgeRemove, nodeReplace, edgeReplace }
 }

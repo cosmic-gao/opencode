@@ -1,5 +1,4 @@
-import type { EndpointOptions, EndpointValue } from './endpoint'
-import { Endpoint } from './endpoint'
+import { type EndpointOptions, type EndpointValue, Endpoint } from './endpoint'
 
 /**
  * 输出端点 (Output)

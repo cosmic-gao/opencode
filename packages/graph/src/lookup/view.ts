@@ -1,8 +1,4 @@
-import type { Edge } from '../model/edge'
-import type { Endpoint } from '../model/endpoint'
-import type { Input } from '../model/input'
-import type { Node } from '../model/node'
-import type { Output } from '../model/output'
+import type { Edge, Endpoint, Input, Node, Output } from '../model'
 
 /**
  * 查表视图接口 (LookupView)

@@ -2,7 +2,6 @@ import type { EdgeValue } from './edge'
 import { Edge } from './edge'
 import type { NodeValue } from './node'
 import { Node } from './node'
-import { Lookup } from '../lookup'
 import { GraphSpec } from './base'
 
 /**
@@ -21,11 +20,6 @@ export interface GraphOptions {
   nodes?: readonly Node[]
   edges?: readonly Edge[]
   metadata?: Record<string, unknown>
-  /**
-   * 预构建的查表对象。
-   * 如果提供，将直接用于此图实例，避免重复构建索引。
-   */
-  lookup?: Lookup
 }
 
 /**
@@ -54,9 +48,6 @@ export class Graph extends GraphSpec {
     this.nodes = Object.freeze([...(options.nodes ?? [])])
     this.edges = Object.freeze([...(options.edges ?? [])])
     this.metadata = options.metadata
-    if (options.lookup) {
-      this.lookupCache = options.lookup
-    }
   }
 
   /**
@@ -94,17 +85,5 @@ export class Graph extends GraphSpec {
       edges: this.edges.map((edge) => edge.toValue()),
       metadata: this.metadata,
     }
-  }
-
-  /**
-   * 创建查表对象。
-   *
-   * 当 lookupCache 为空时，基类会调用此方法构建新的 Lookup 实例。
-   *
-   * @protected
-   * @returns 新的 Lookup 实例
-   */
-  protected createLookup(): Lookup {
-    return new Lookup(this)
   }
 }

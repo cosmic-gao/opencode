@@ -4,25 +4,27 @@
 
 ## 内容
 
-- [basic-usage.ts](./basic-usage.ts): 基础完整流程演示
-  - 创建图
-  - 使用工作区 (Workspace)
-  - 应用增量变更 (Delta)
-  - 影响分析 (Affected Subgraph)
-  - 结构校验 (Validate)
+- [basic-usage.ts](./basic-usage.ts): 最小闭环（update + patch + validate + impact）
+- [apply-patch.ts](./apply-patch.ts): 直接使用 applyPatch 入口
+- [rollback.ts](./rollback.ts): 演示校验失败后的事务回滚
+- [impact-options.ts](./impact-options.ts): 演示影响分析的 direction/depth 选项
+- [custom-impact.ts](./custom-impact.ts): 演示可插拔 ImpactSemantics
 
 ## 运行方式
 
-由于本项目使用 TypeScript，您可以直接查看代码了解 API 用法，或使用 `tsx` 运行示例（推荐，因为它能更好地处理 ESM 模块解析）：
+由于本项目使用 TypeScript，您可以直接查看代码了解 API 用法，或使用 `tsx` 运行示例：
 
 ```bash
-# 使用 npx 运行
-npx tsx examples/basic-usage.ts
-``````
+pnpm -w dlx tsx packages/graph/examples/basic-usage.ts
+pnpm -w dlx tsx packages/graph/examples/apply-patch.ts
+pnpm -w dlx tsx packages/graph/examples/rollback.ts
+pnpm -w dlx tsx packages/graph/examples/impact-options.ts
+pnpm -w dlx tsx packages/graph/examples/custom-impact.ts
+```
 
 ## 核心概念说明
 
 1. **Graph (不可变)**: 每次变更都会生成新的 Graph 实例，确保数据安全性。
 2. **GraphWorkspace (可变)**: 管理编辑会话，维护增量索引以提高性能。
-3. **Delta**: 描述变更的数据结构（JSON 可序列化）。
-4. **Lookup**: 提供 O(1) 的图查询能力。
+3. **Patch**: 描述事实层变更的数据结构（新增/移除/替换）。
+4. **GraphStore**: 唯一事实源，校验与影响分析默认基于 GraphStore 执行。

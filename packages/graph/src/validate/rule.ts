@@ -1,5 +1,4 @@
-import type { GraphSpec } from '../model/base'
-import type { LookupView } from '../lookup/view'
+import type { GraphStore, Patch } from '../state'
 import type { Diagnostic } from './diagnostic'
 
 /**
@@ -14,9 +13,9 @@ export interface Rule {
   /**
    * 执行校验逻辑。
    *
-   * @param graph - 图定义对象（包含节点和边）
-   * @param lookup - 查表对象（提供高效查询能力）
+   * @param state - 图状态（唯一事实源）
+   * @param patch - 可选的事实补丁（用于增量校验场景）
    * @returns 诊断信息列表
    */
-  evaluate: (graph: GraphSpec, lookup: LookupView) => Diagnostic[]
+  evaluate: (state: GraphStore, patch?: Patch) => Diagnostic[]
 }

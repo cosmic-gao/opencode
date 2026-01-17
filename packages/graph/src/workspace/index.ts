@@ -1,205 +1,190 @@
-import { Graph } from '../model/graph'
-import { Lookup } from '../lookup'
-import type { Edge } from '../model/edge'
-import type { Node } from '../model/node'
-import type { GraphDelta } from '../delta'
-import { IncrementalLookup } from '../lookup/incremental'
-import type { ImpactOptions } from '../subgraph/affected'
-import {
-  collectAffected,
-  createSubgraph,
-} from '../subgraph/affected'
-import type { Subgraph } from '../subgraph/instance'
+import { Graph, type Edge, type Node } from '../model'
+import { IncrementalLookup } from '../lookup'
+import { type Diagnostic, type ValidateOptions, validate } from '../validate'
+import { GraphStore, type Patch, type UndoPatch } from '../state'
 
 /**
- * 变更应用结果
+ * 更新结果
  */
-export interface ApplyResult {
-  /** 生成的新图快照 */
+export interface GraphResult {
   graph: Graph
-  /** 更新后的增量索引（引用） */
-  lookup: IncrementalLookup
-  /** 受本次变更影响的子图 */
-  affected: Subgraph
+  patch: Patch
+  diagnostics: readonly Diagnostic[]
 }
 
 /**
- * 图工作区 (GraphWorkspace)
+ * 图编辑器 (GraphEditor)
  *
- * 用于管理图的编辑会话。它维护了一个可变的图状态（通过 IncrementalLookup 和数组），
- * 并支持事务性地应用变更 (GraphDelta)，生成新的不可变 Graph 快照。
- *
- * 核心优化：
- * - 维护增量索引，避免每次变更都全量重建。
- * - 生成新 Graph 时，复用增量索引的状态（通过快照），实现 O(1) 的 Graph 创建开销（相对于索引构建）。
- *
- * @example
- * ```ts
- * // 1. 创建初始图
- * const initialGraph = new Graph({ nodes: [], edges: [] });
- *
- * // 2. 初始化工作区
- * const workspace = new GraphWorkspace(initialGraph);
- *
- * // 3. 定义变更
- * const delta = {
- *   addedNodes: [
- *     new Node({ id: 'node1', type: 'core', inputs: [], outputs: [] })
- *   ]
- * };
- *
- * // 4. 应用变更
- * const result = workspace.apply(delta);
- * console.log(result.graph.nodes.length); // 1
- * ```
+ * 该接口是 Workspace.update 的唯一写入口，用于表达意图并生成事实补丁。
  */
+export interface GraphEditor {
+  createNode(node: Node): void
+  replaceNode(node: Node): void
+  removeNode(nodeId: string): void
+  createEdge(edge: Edge): void
+  replaceEdge(edge: Edge): void
+  removeEdge(edgeId: string): void
+  applyPatch(patch: Patch): void
+}
+
 export class GraphWorkspace {
-  private readonly nodeIndexByIdMap = new Map<string, number>()
-  private readonly edgeIndexByIdMap = new Map<string, number>()
-  private readonly nodes: Node[] = []
-  private readonly edges: Edge[] = []
+  private state: GraphStore
+  private index: IncrementalLookup
+  private graphSnapshot: Graph
 
-  readonly lookup: IncrementalLookup
-  graph: Graph
-
-  /**
-   * 创建工作区。
-   *
-   * @param graph - 初始图状态
-   */
   constructor(graph: Graph) {
-    this.graph = graph
-
-    for (const node of graph.nodes) this.addNode(node)
-    for (const edge of graph.edges) this.addEdge(edge)
-
-    this.lookup = new IncrementalLookup(graph)
+    this.state = GraphStore.fromGraph(graph)
+    this.index = new IncrementalLookup(this.state)
+    this.graphSnapshot = graph
   }
 
   /**
-   * 应用变更并生成新图。
+   * 在事务中更新图，并在成功后提交为新的不可变快照。
    *
-   * @param delta - 变更描述
-   * @param options - 受影响子图分析选项
-   * @returns 包含新图、当前 lookup 引用及受影响子图的结果对象
+   * @param updater - 事务更新函数
+   * @param options - 校验选项
+   * @returns 更新结果（新图快照、事实补丁、诊断信息）
+   * @throws 当 updater 抛错或校验失败时抛出错误，且状态会回滚
    *
    * @example
-   * ```ts
-   * const delta = {
-   *   removedNodeIds: ['node-to-delete']
-   * };
-   *
-   * // 应用变更并分析受影响的下游节点
-   * const { graph, affected } = workspace.apply(delta, {
-   *   direction: 'downstream'
-   * });
-   *
-   * console.log('New graph node count:', graph.nodes.length);
-   * console.log('Affected nodes:', affected.nodes.map(n => n.id));
-   * ```
+   * const result = workspace.update((transaction) => {
+   *   transaction.createNode(new Node({ type: 'task', inputs: [], outputs: [] }))
+   * })
    */
-  apply(delta: GraphDelta, options: ImpactOptions = {}): ApplyResult {
-    const effectiveDelta = this.normalizeDelta(delta)
-    const affectedNodeIds = collectAffected(this.lookup, effectiveDelta, options)
+  update(updater: (editor: GraphEditor) => void, options: ValidateOptions = {}): GraphResult {
+    const undoList: UndoPatch[] = []
+    const patchLog = new PatchLog()
+    const editor = new GraphEdit(this.state, this.index, patchLog, undoList)
 
-    this.applyArrays(effectiveDelta)
-    this.lookup.apply(effectiveDelta)
+    try {
+      updater(editor)
 
-    // 关键优化：从 IncrementalLookup 获取快照，直接构建 Lookup，避免重建索引。
-    const fastLookup = Lookup.fromSnapshot(this.lookup.getSnapshot())
+      const patch = patchLog.createPatch()
+      const diagnostics = validate(this.state, patch, options)
+      const graph = this.state.toGraph()
+      this.throwIfInvalid(diagnostics)
 
-    this.graph = new Graph({ 
-      nodes: this.nodes, 
-      edges: this.edges,
-      lookup: fastLookup
-    })
+      this.graphSnapshot = graph
 
-    const affected = createSubgraph(this.lookup, affectedNodeIds, options)
-
-    return { graph: this.graph, lookup: this.lookup, affected }
-  }
-
-  private normalizeDelta(delta: GraphDelta): GraphDelta {
-    if (!delta.removedNodeIds || delta.removedNodeIds.length === 0) return delta
-
-    const removedEdgeIdSet = new Set<string>(delta.removedEdgeIds ?? [])
-
-    for (const nodeId of delta.removedNodeIds) {
-      this.collectEdges(nodeId, removedEdgeIdSet)
-    }
-
-    return {
-      ...delta,
-      removedEdgeIds: [...removedEdgeIdSet],
-    }
-  }
-
-  private collectEdges(nodeId: string, edgeIdSet: Set<string>): void {
-    for (const edge of this.lookup.getNodeIncoming(nodeId)) {
-      edgeIdSet.add(edge.id)
-    }
-    for (const edge of this.lookup.getNodeOutgoing(nodeId)) {
-      edgeIdSet.add(edge.id)
-    }
-  }
-
-  private applyArrays(delta: GraphDelta): void {
-    if (delta.removedEdgeIds) {
-      for (const edgeId of delta.removedEdgeIds) this.removeEdge(edgeId)
-    }
-
-    if (delta.removedNodeIds) {
-      for (const nodeId of delta.removedNodeIds) this.removeNode(nodeId)
-    }
-
-    if (delta.addedNodes) {
-      for (const node of delta.addedNodes) this.addNode(node)
-    }
-
-    if (delta.addedEdges) {
-      for (const edge of delta.addedEdges) this.addEdge(edge)
-    }
-  }
-
-  private addNode(node: Node): void {
-    if (this.nodeIndexByIdMap.has(node.id)) return
-    this.nodeIndexByIdMap.set(node.id, this.nodes.length)
-    this.nodes.push(node)
-  }
-
-  private addEdge(edge: Edge): void {
-    if (this.edgeIndexByIdMap.has(edge.id)) return
-    this.edgeIndexByIdMap.set(edge.id, this.edges.length)
-    this.edges.push(edge)
-  }
-
-  private removeNode(nodeId: string): void {
-    const index = this.nodeIndexByIdMap.get(nodeId)
-    if (index === undefined) return
-    this.removeFromArray(this.nodes, index, this.nodeIndexByIdMap)
-    this.nodeIndexByIdMap.delete(nodeId)
-  }
-
-  private removeEdge(edgeId: string): void {
-    const index = this.edgeIndexByIdMap.get(edgeId)
-    if (index === undefined) return
-    this.removeFromArray(this.edges, index, this.edgeIndexByIdMap)
-    this.edgeIndexByIdMap.delete(edgeId)
-  }
-
-  private removeFromArray<T extends { id: string }>(
-    array: T[],
-    index: number,
-    indexMap: Map<string, number>
-  ): void {
-    const lastIndex = array.length - 1
-    if (index !== lastIndex) {
-      const swapped = array[lastIndex]
-      if (swapped) {
-        array[index] = swapped
-        indexMap.set(swapped.id, index)
+      return { graph, patch, diagnostics }
+    } catch (error) {
+      for (let index = undoList.length - 1; index >= 0; index--) {
+        const undo = undoList[index]
+        if (!undo) continue
+        this.index.applyPatch(undo)
+        this.state.apply(undo)
       }
+      this.graphSnapshot = this.state.toGraph()
+      throw error
     }
-    array.pop()
+  }
+
+  /**
+   * 直接应用事实补丁（仍然在事务与校验保护下执行）。
+   *
+   * @param patch - 事实补丁
+   * @param options - 校验选项
+   * @returns 更新结果
+   * @throws 当补丁应用失败或校验失败时抛出错误，且状态会回滚
+   */
+  applyPatch(patch: Patch, options: ValidateOptions = {}): GraphResult {
+    return this.update((editor) => editor.applyPatch(patch), options)
+  }
+
+  /**
+   * 获取当前不可变图快照。
+   *
+   * @returns 当前图快照
+   */
+  get graph(): Graph {
+    return this.graphSnapshot
+  }
+
+  private throwIfInvalid(diagnostics: readonly Diagnostic[]): void {
+    const errorList = diagnostics.filter((diagnostic) => diagnostic.level === 'error')
+    if (errorList.length === 0) return
+    throw new Error(`Graph validation failed: ${errorList.map((diagnostic) => diagnostic.message).join(', ')}`)
+  }
+}
+
+class PatchLog {
+  private readonly addedNodes: Node[] = []
+  private readonly addedEdges: Edge[] = []
+  private readonly removedNodeIds: Set<string> = new Set()
+  private readonly removedEdgeIds: Set<string> = new Set()
+  private readonly replacedNodes: Node[] = []
+  private readonly replacedEdges: Edge[] = []
+
+  addPatch(patch: Patch): void {
+    if (patch.nodeAdd) this.addedNodes.push(...patch.nodeAdd)
+    if (patch.edgeAdd) this.addedEdges.push(...patch.edgeAdd)
+    if (patch.nodeReplace) this.replacedNodes.push(...patch.nodeReplace)
+    if (patch.edgeReplace) this.replacedEdges.push(...patch.edgeReplace)
+    if (patch.nodeRemove) for (const nodeId of patch.nodeRemove) this.removedNodeIds.add(nodeId)
+    if (patch.edgeRemove) for (const edgeId of patch.edgeRemove) this.removedEdgeIds.add(edgeId)
+  }
+
+  createPatch(): Patch {
+    return {
+      nodeAdd: this.addedNodes.length > 0 ? Object.freeze([...this.addedNodes]) : undefined,
+      edgeAdd: this.addedEdges.length > 0 ? Object.freeze([...this.addedEdges]) : undefined,
+      nodeReplace: this.replacedNodes.length > 0 ? Object.freeze([...this.replacedNodes]) : undefined,
+      edgeReplace: this.replacedEdges.length > 0 ? Object.freeze([...this.replacedEdges]) : undefined,
+      nodeRemove: this.removedNodeIds.size > 0 ? Object.freeze([...this.removedNodeIds]) : undefined,
+      edgeRemove: this.removedEdgeIds.size > 0 ? Object.freeze([...this.removedEdgeIds]) : undefined,
+    }
+  }
+}
+
+class GraphEdit implements GraphEditor {
+  private readonly state: GraphStore
+  private readonly index: IncrementalLookup
+  private readonly patchLog: PatchLog
+  private readonly undoList: UndoPatch[]
+
+  constructor(state: GraphStore, index: IncrementalLookup, patchLog: PatchLog, undoList: UndoPatch[]) {
+    this.state = state
+    this.index = index
+    this.patchLog = patchLog
+    this.undoList = undoList
+  }
+
+  createNode(node: Node): void {
+    this.applyPatch({ nodeAdd: [node] })
+  }
+
+  replaceNode(node: Node): void {
+    this.applyPatch({ nodeReplace: [node] })
+  }
+
+  removeNode(nodeId: string): void {
+    const edgeIds = this.collectEdges(nodeId)
+    this.applyPatch({ edgeRemove: edgeIds, nodeRemove: [nodeId] })
+  }
+
+  createEdge(edge: Edge): void {
+    this.applyPatch({ edgeAdd: [edge] })
+  }
+
+  replaceEdge(edge: Edge): void {
+    this.applyPatch({ edgeReplace: [edge] })
+  }
+
+  removeEdge(edgeId: string): void {
+    this.applyPatch({ edgeRemove: [edgeId] })
+  }
+
+  applyPatch(patch: Patch): void {
+    const undo = this.state.apply(patch)
+    this.index.applyPatch(patch)
+    this.patchLog.addPatch(patch)
+    this.undoList.push(undo)
+  }
+
+  private collectEdges(nodeId: string): string[] {
+    const edgeIds: string[] = []
+    for (const edge of this.state.getNodeIncoming(nodeId)) edgeIds.push(edge.id)
+    for (const edge of this.state.getNodeOutgoing(nodeId)) edgeIds.push(edge.id)
+    return [...new Set(edgeIds)]
   }
 }

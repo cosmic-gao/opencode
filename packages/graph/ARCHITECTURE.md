@@ -8,109 +8,104 @@
 
 ## 2. 核心架构原则
 
-1.  **不可变性 (Immutability)**
-    *   核心图模型 (`Graph`, `Node`, `Edge`) 均为不可变对象。
-    *   任何变更都会生成新的对象实例，而非修改现有对象。这确保了数据的安全性，天然支持撤销/重做（Undo/Redo）栈，并简化了并发处理。
+1.  **Graph 是唯一权威真相源**
+    *   Graph (`nodes`/`edges` 数组) 表示“事实”。
+    *   索引（Lookup）是派生结构，永远可以从 Graph 全量重建。
 
-2.  **读写分离 (Segregation of Responsibilities)**
-    *   **读**：通过 `Lookup` 接口提供 O(1) 的高性能查询。
-    *   **写**：通过 `GraphWorkspace` 和 `GraphDelta` 管理变更事务。
+2.  **所有变更必须经过事务（Transaction）**
+    *   不再允许直接 mutate Workspace 状态。
+    *   `apply` 操作即为提交事务。
+    *   **事务流程**：Begin -> Mutate -> Validate -> Commit/Rollback。
 
-3.  **增量更新 (Incremental Updates)**
-    *   为了解决不可变模型在大规模图编辑时的性能瓶颈，引入了 `IncrementalLookup`。
-    *   在编辑会话中，索引是增量维护的，避免了每次微小变更都触发全量索引重建 (O(N) -> O(Δ))。
+3.  **索引是可回滚的缓存**
+    *   `IncrementalLookup` 支持 `beginTransaction`, `commit`, `rollback`。
+    *   内置 Undo 栈，自动记录反向操作（Reverse Delta）。
+
+4.  **命令（Intent）与补丁（Patch）分离**
+    *   命令表达用户意图（如“连接两个节点”）。
+    *   Patch (`GraphDelta`) 表达事实变更（如“addedEdges: [...]”）。
+
+5.  **计算层纯函数化**
+    *   校验 (`validate`)、影响分析 (`affectedSubgraph`) 等逻辑不依赖 Workspace 内部状态，仅依赖传入的 Graph 接口。
 
 ## 3. 模块详细设计
 
 ### 3.1 模型层 (`src/model`)
 
-定义了图的基础数据结构，完全贫血模型，只包含数据和基础存取方法。
+定义了图的基础数据结构，完全贫血模型。
 
 *   **Graph**: 图的根对象，包含节点列表、边列表和索引引用。
-*   **Node**: 节点，包含输入/输出端点 (`Input`/`Output`)。
-*   **Edge**: 边，连接源端点 (`source`) 和目标端点 (`target`)。
-*   **Reference**: 弱引用结构，通过 ID (`nodeId`, `endpointId`) 关联对象，便于序列化。
+*   **Node/Edge**: 核心实体。
+    *   **ID 生成**: 采用 `nanoid` (16位) 生成唯一 ID，支持语义前缀 (如 `node-`, `edge-`)。
+    *   **Endpoint**: `Input`/`Output` 统一继承自 `Endpoint`，具备独立 ID。
 
 ### 3.2 索引层 (`src/lookup`)
 
-解决了“数组遍历查找慢”的问题，将图的遍历复杂度从 O(N) 降低到 O(1)。
-
-*   **Lookup (Immutable)**: 只读索引，用于 `Graph` 实例。构建时计算所有映射关系（ID 映射、邻接表、归属关系）。
-*   **IncrementalLookup (Mutable)**: 可变索引，用于 `GraphWorkspace`。支持 `applyDelta` 操作，仅更新受影响的索引项。
-*   **LookupSnapshot**: 索引状态的快照数据，用于在 `IncrementalLookup` 和 `Lookup` 之间零拷贝（或浅拷贝）传递状态。
+*   **Lookup (Immutable)**: 只读索引，用于 `Graph` 实例。
+*   **IncrementalLookup (Mutable)**: 可变索引，用于 `GraphWorkspace`。
+    *   **事务支持**: 维护 `transactionStack`，记录每步操作的反向 Delta。
+    *   **回滚机制**: 发生错误时，逆序执行 Undo 栈恢复索引状态。
 
 ### 3.3 工作区层 (`src/workspace`)
 
-管理图的生命周期和编辑会话。
-
 *   **GraphWorkspace**: 用户交互的主要入口。
-    *   持有当前的 `Graph` 快照（不可变）和 `IncrementalLookup`（可变）。
-    *   **核心流程 (`apply`)**:
-        1.  接收变更描述 (`GraphDelta`)。
-        2.  规范化 Delta（例如自动级联删除关联边）。
-        3.  更新内部数组和增量索引。
-        4.  基于增量索引快照，快速构建新的 `Graph` 实例。
-        5.  计算受影响的子图范围。
+    *   **事务性 Apply**:
+        1.  **Normalize**: 规范化 Delta。
+        2.  **Prepare**: 计算针对数组的反向 Delta。
+        3.  **Transaction**: 开启索引事务。
+        4.  **Mutate**: 更新索引和数组。
+        5.  **Validate**: 基于临时快照执行纯函数校验。
+        6.  **Commit/Rollback**: 校验通过则提交，失败则全量回滚。
 
 ### 3.4 变更层 (`src/delta`)
 
-定义了图的原子变更操作。
+*   **GraphDelta**: 变更描述对象。
+*   **invertDelta**: 工具函数，用于根据当前图状态生成撤销变更（Undo Delta）。
 
-*   **GraphDelta**: 包含 `addedNodes`, `removedNodeIds`, `addedEdges`, `removedEdgeIds`。
-*   设计为纯数据结构 (JSON Object)，易于序列化传输和存储。
-
-### 3.5 影响分析层 (`src/subgraph`)
-
-用于分析变更对图的波及范围，支持依赖追踪。
-
-*   **affectedSubgraph**: 基于 BFS 算法，支持向上游（依赖方）或下游（影响方）传播。
-*   **ImpactOptions**: 配置传播方向、深度限制、屏障节点等。
-
-### 3.6 校验层 (`src/validate`)
-
-可插拔的规则引擎，用于保障图的逻辑完整性。
-
-*   **validate**: 主入口，执行一系列 `Rule`。
-*   **Standard Rules**:
-    *   `identity`: ID 唯一性检查。
-    *   `reference`: 悬空引用检查（边连接了不存在的节点）。
-    *   `direction`: 连接方向检查（Output -> Input）。
-    *   `ownership`: 端点归属权检查。
-    *   `cardinality`: 端口连接数限制。
-    *   `flow`: 数据流类型兼容性检查。
-
-## 4. 数据流转图
+## 4. 数据流转图 (事务流程)
 
 ```mermaid
-graph TD
-    User[用户/外部系统] -->|提交 Delta| Workspace
-    Workspace -->|1. 规范化| Delta
-    Workspace -->|2. 更新| IncLookup[Incremental Lookup]
-    Workspace -->|3. 更新| Arrays[Node/Edge Arrays]
-    IncLookup -.->|快照共享| NewLookup[New Immutable Lookup]
-    Arrays -.->|引用| NewGraph[New Graph]
-    NewLookup -.->|引用| NewGraph
-    Workspace -->|4. 返回| Result[ApplyResult]
-    Result --> NewGraph
-    Result --> Affected[Affected Subgraph]
+sequenceDiagram
+    participant User
+    participant Workspace
+    participant Lookup
+    participant Validator
+    
+    User->>Workspace: apply(Delta)
+    Workspace->>Workspace: normalize(Delta)
+    Workspace->>Lookup: beginTransaction()
+    
+    rect rgb(240, 248, 255)
+        Note right of Workspace: 试探性执行
+        Workspace->>Lookup: apply(Delta) [记录 Undo]
+        Workspace->>Workspace: updateArrays()
+    end
+    
+    Workspace->>Validator: validate(TempGraph)
+    
+    alt Validation Passed
+        Validator-->>Workspace: OK
+        Workspace->>Lookup: commit()
+        Workspace-->>User: New Graph
+    else Validation Failed
+        Validator-->>Workspace: Errors
+        Workspace->>Lookup: rollback() [执行 Undo]
+        Workspace->>Workspace: revertArrays()
+        Workspace-->>User: Throw Error
+    end
 ```
 
-## 5. 现状评估与改进计划
+## 5. 演进记录
 
-### 5.1 代码规范依从性 (已完成)
-已按照 `AGENTS.md` 规范完成全量重构：
-*   **命名**: 严格遵守“最多2个单词”限制（如 `ImpactOptions`, `standardRules`）。
-*   **结构**: 拆分了超长函数（如 `collectAffected`），消除了深层嵌套。
-*   **语义**: 将 `Edge` 的 `from/to` 重命名为更明确的 `source/target`。
+### 5.1 近期重构 (已完成)
+*   **事务机制**: 全面引入 ACID 事务，确保 Graph 状态强一致性。
+*   **ID 生成**: 统一使用 `src/utils/id` 生成带前缀的短 ID。
+*   **代码规范**:
+    *   `GraphDefinition` 重命名为 `Base`。
+    *   `Edge` 属性重命名为 `source/target`。
+    *   `IncrementalLookup` 修复了 TS 类型错误。
 
-### 5.2 遗留缺陷与风险
-1.  **测试缺失**: 当前工程缺乏单元测试和集成测试，核心算法（尤其是增量索引维护）的稳定性难以保障。
-2.  **事件机制**: 缺失 EventEmitter，外部无法订阅图变更事件。
-3.  **自动校验**: `Workspace.apply` 默认不执行校验，可能产生非法图状态。
-4.  **序列化**: 虽然 `Graph` 可序列化，但 `Workspace` 的会话状态无法持久化。
-
-### 5.3 下一步演进建议
-1.  **引入测试框架**: 建立 Jest/Vitest 测试环境，覆盖所有核心路径。
-2.  **增强校验**: 在 `GraphWorkspace` 中增加 `autoValidate` 选项。
-3.  **实现事务回滚**: 在 `apply` 失败时能够回滚索引状态。
-4.  **环路检测**: 增加 Cycle Detection 规则，防止形成非法的循环依赖。
+### 5.2 下一步计划
+1.  **测试覆盖**: 补充针对事务回滚的单元测试（目前仅有手动验证脚本）。
+2.  **事件机制**: 引入 EventEmitter，允许外部订阅 `onCommit`, `onRollback` 事件。
+3.  **高级校验**: 增加环路检测（Cycle Detection）规则。

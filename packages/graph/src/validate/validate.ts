@@ -1,6 +1,5 @@
-import type { Edge } from '../model/edge'
-import type { GraphSpec } from '../model/base'
-import type { LookupView } from '../lookup/view'
+import type { Edge } from '../model'
+import type { GraphStore, Patch } from '../state'
 import type { Diagnostic } from './diagnostic'
 import type { Rule } from './rule'
 
@@ -23,20 +22,36 @@ export interface ValidateOptions {
  * 该方法只验证“描述是否自洽”（引用存在、方向、归属、基础约束），不包含任何执行或调度逻辑。
  * 它通过一系列 Rule 对图进行检查。
  *
- * @param graph - 图对象 (GraphSpec)
+ * @param state - 图状态（唯一事实源）
+ * @param patch - 事实补丁
  * @param options - 校验选项
  * @returns 诊断列表（可直接用于 UI 展示）
  */
-export function validate(graph: GraphSpec, options: ValidateOptions = {}): Diagnostic[] {
-  const lookup = graph.lookup()
+export function validate(state: GraphStore, patch: Patch, options: ValidateOptions = {}): Diagnostic[] {
   const rules = options.rules ?? standardRules(options)
 
   const diagnostics: Diagnostic[] = []
 
   for (const rule of rules) {
-    diagnostics.push(...rule.evaluate(graph, lookup))
+    diagnostics.push(...rule.evaluate(state, patch))
   }
 
+  return diagnostics
+}
+
+/**
+ * 全量校验。
+ *
+ * @param state - 图状态（唯一事实源）
+ * @param options - 校验选项
+ * @returns 诊断列表
+ */
+export function validateAll(state: GraphStore, options: ValidateOptions = {}): Diagnostic[] {
+  const rules = options.rules ?? standardRules(options)
+  const diagnostics: Diagnostic[] = []
+  for (const rule of rules) {
+    diagnostics.push(...rule.evaluate(state))
+  }
   return diagnostics
 }
 
@@ -68,24 +83,26 @@ function standardRules(options: ValidateOptions): Rule[] {
 function identityRule(): Rule {
   return {
     name: 'identity',
-    evaluate(graph) {
+    evaluate(state, patch) {
+      if (patch) return []
+
       const nodeIdSet = new Set<string>()
       const endpointIdSet = new Set<string>()
       const edgeIdSet = new Set<string>()
 
       return [
-        ...checkNodeIds(graph, nodeIdSet),
-        ...checkEndpointIds(graph, endpointIdSet),
-        ...checkEdgeIds(graph, edgeIdSet),
+        ...checkNodeIds(state, nodeIdSet),
+        ...checkEndpointIds(state, endpointIdSet),
+        ...checkEdgeIds(state, edgeIdSet),
       ]
     },
   }
 }
 
-function checkNodeIds(graph: GraphSpec, nodeIdSet: Set<string>): Diagnostic[] {
+function checkNodeIds(state: GraphStore, nodeIdSet: Set<string>): Diagnostic[] {
   const diagnostics: Diagnostic[] = []
 
-  for (const node of graph.nodes) {
+  for (const node of state.listNodes()) {
     if (nodeIdSet.has(node.id)) {
       diagnostics.push({
         level: 'error',
@@ -103,12 +120,12 @@ function checkNodeIds(graph: GraphSpec, nodeIdSet: Set<string>): Diagnostic[] {
 }
 
 function checkEndpointIds(
-  graph: GraphSpec,
+  state: GraphStore,
   endpointIdSet: Set<string>,
 ): Diagnostic[] {
   const diagnostics: Diagnostic[] = []
 
-  for (const node of graph.nodes) {
+  for (const node of state.listNodes()) {
     for (const endpoint of node.inputs) {
       diagnostics.push(
         ...checkEndpointId(endpoint.id, endpointIdSet),
@@ -143,10 +160,10 @@ function checkEndpointId(
   ]
 }
 
-function checkEdgeIds(graph: GraphSpec, edgeIdSet: Set<string>): Diagnostic[] {
+function checkEdgeIds(state: GraphStore, edgeIdSet: Set<string>): Diagnostic[] {
   const diagnostics: Diagnostic[] = []
 
-  for (const edge of graph.edges) {
+  for (const edge of state.listEdges()) {
     if (edgeIdSet.has(edge.id)) {
       diagnostics.push({
         level: 'error',
@@ -170,22 +187,17 @@ function checkEdgeIds(graph: GraphSpec, edgeIdSet: Set<string>): Diagnostic[] {
 function referenceRule(): Rule {
   return {
     name: 'reference',
-    evaluate(graph, lookup) {
-      const diagnostics: Diagnostic[] = []
-
-      for (const edge of graph.edges) {
-        diagnostics.push(...checkReference(edge, lookup))
-      }
-
-      return diagnostics
+    evaluate(state, patch) {
+      const edges = patch ? listEdges(state, patch) : state.listEdges()
+      return edges.flatMap((edge) => checkReference(edge, state))
     },
   }
 }
 
-function checkReference(edge: Edge, lookup: LookupView): Diagnostic[] {
+function checkReference(edge: Edge, state: GraphStore): Diagnostic[] {
   const diagnostics: Diagnostic[] = []
 
-  const fromNode = lookup.getNode(edge.source.nodeId)
+  const fromNode = state.getNode(edge.source.nodeId)
   if (!fromNode) {
     diagnostics.push({
       level: 'error',
@@ -195,7 +207,7 @@ function checkReference(edge: Edge, lookup: LookupView): Diagnostic[] {
     })
   }
 
-  const toNode = lookup.getNode(edge.target.nodeId)
+  const toNode = state.getNode(edge.target.nodeId)
   if (!toNode) {
     diagnostics.push({
       level: 'error',
@@ -205,7 +217,7 @@ function checkReference(edge: Edge, lookup: LookupView): Diagnostic[] {
     })
   }
 
-  const fromEndpoint = lookup.getEndpoint(edge.source.endpointId)
+  const fromEndpoint = state.getEndpoint(edge.source.endpointId)
   if (!fromEndpoint) {
     diagnostics.push({
       level: 'error',
@@ -215,7 +227,7 @@ function checkReference(edge: Edge, lookup: LookupView): Diagnostic[] {
     })
   }
 
-  const toEndpoint = lookup.getEndpoint(edge.target.endpointId)
+  const toEndpoint = state.getEndpoint(edge.target.endpointId)
   if (!toEndpoint) {
     diagnostics.push({
       level: 'error',
@@ -235,11 +247,12 @@ function checkReference(edge: Edge, lookup: LookupView): Diagnostic[] {
 function directionRule(): Rule {
   return {
     name: 'direction',
-    evaluate(graph, lookup) {
+    evaluate(state, patch) {
       const diagnostics: Diagnostic[] = []
 
-      for (const edge of graph.edges) {
-        const output = lookup.getOutput(edge.source.endpointId)
+      const edges = patch ? listEdges(state, patch) : state.listEdges()
+      for (const edge of edges) {
+        const output = state.getOutput(edge.source.endpointId)
         if (!output) {
           diagnostics.push({
             level: 'error',
@@ -249,7 +262,7 @@ function directionRule(): Rule {
           })
         }
 
-        const input = lookup.getInput(edge.target.endpointId)
+        const input = state.getInput(edge.target.endpointId)
         if (!input) {
           diagnostics.push({
             level: 'error',
@@ -272,11 +285,12 @@ function directionRule(): Rule {
 function ownershipRule(): Rule {
   return {
     name: 'ownership',
-    evaluate(graph, lookup) {
+    evaluate(state, patch) {
       const diagnostics: Diagnostic[] = []
 
-      for (const edge of graph.edges) {
-        const fromNodeId = lookup.getEndpointNodeId(edge.source.endpointId)
+      const edges = patch ? listEdges(state, patch) : state.listEdges()
+      for (const edge of edges) {
+        const fromNodeId = state.getEndpointNodeId(edge.source.endpointId)
         if (fromNodeId && fromNodeId !== edge.source.nodeId) {
           diagnostics.push({
             level: 'error',
@@ -286,7 +300,7 @@ function ownershipRule(): Rule {
           })
         }
 
-        const toNodeId = lookup.getEndpointNodeId(edge.target.endpointId)
+        const toNodeId = state.getEndpointNodeId(edge.target.endpointId)
         if (toNodeId && toNodeId !== edge.target.nodeId) {
           diagnostics.push({
             level: 'error',
@@ -311,25 +325,17 @@ function cardinalityRule(options: ValidateOptions): Rule {
 
   return {
     name: 'cardinality',
-    evaluate(graph, lookup) {
+    evaluate(state, patch) {
       if (allowMultiple) return []
 
+      const inputIds = patch ? listInputs(state, patch) : state.listNodes().flatMap((node) => node.inputs.map((input) => input.id))
       const diagnostics: Diagnostic[] = []
-
-      for (const node of graph.nodes) {
-        for (const input of node.inputs) {
-          const incomingEdges = lookup.getIncomingEdges(input.id)
-          if (incomingEdges.length > 1) {
-            diagnostics.push({
-              level: 'error',
-              code: 'cardinality',
-              message: `Input endpoint has multiple incoming edges: ${input.id}`,
-              target: { type: 'endpoint', id: input.id },
-            })
-          }
+      for (const inputId of inputIds) {
+        const incoming = state.getIncomingEdges(inputId)
+        if (incoming.length > 1) {
+          diagnostics.push({ level: 'error', code: 'cardinality', message: `Input endpoint has multiple incoming edges: ${inputId}`, target: { type: 'endpoint', id: inputId } })
         }
       }
-
       return diagnostics
     },
   }
@@ -344,14 +350,15 @@ function flowRule(options: ValidateOptions): Rule {
 
   return {
     name: 'flow',
-    evaluate(graph, lookup) {
+    evaluate(state, patch) {
       if (!matchFlow) return []
 
       const diagnostics: Diagnostic[] = []
 
-      for (const edge of graph.edges) {
-        const output = lookup.getOutput(edge.source.endpointId)
-        const input = lookup.getInput(edge.target.endpointId)
+      const edges = patch ? listEdges(state, patch) : state.listEdges()
+      for (const edge of edges) {
+        const output = state.getOutput(edge.source.endpointId)
+        const input = state.getInput(edge.target.endpointId)
         if (!output || !input) continue
 
         if (output.contract.flow !== input.contract.flow) {
@@ -367,4 +374,37 @@ function flowRule(options: ValidateOptions): Rule {
       return diagnostics
     },
   }
+}
+
+function listEdges(state: GraphStore, patch: Patch): readonly Edge[] {
+  const edgeMap = new Map<string, Edge>()
+
+  for (const edge of patch.edgeAdd ?? []) edgeMap.set(edge.id, edge)
+  for (const edge of patch.edgeReplace ?? []) edgeMap.set(edge.id, edge)
+
+  for (const node of patch.nodeReplace ?? []) {
+    for (const edge of state.getNodeIncoming(node.id)) edgeMap.set(edge.id, edge)
+    for (const edge of state.getNodeOutgoing(node.id)) edgeMap.set(edge.id, edge)
+  }
+
+  return [...edgeMap.values()]
+}
+
+function listInputs(state: GraphStore, patch: Patch): readonly string[] {
+  const inputIdSet = new Set<string>()
+
+  for (const edge of patch.edgeAdd ?? []) inputIdSet.add(edge.target.endpointId)
+  for (const edge of patch.edgeReplace ?? []) inputIdSet.add(edge.target.endpointId)
+
+  for (const node of patch.nodeReplace ?? []) {
+    const current = state.getNode(node.id)
+    if (!current) continue
+    for (const input of current.inputs) inputIdSet.add(input.id)
+  }
+
+  for (const node of patch.nodeAdd ?? []) {
+    for (const input of node.inputs) inputIdSet.add(input.id)
+  }
+
+  return [...inputIdSet]
 }
