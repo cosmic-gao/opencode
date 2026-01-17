@@ -1,3 +1,4 @@
+import { generateId } from '../utils/id'
 import type { EndpointValue } from './endpoint'
 import { Input } from './input'
 import { Output } from './output'
@@ -18,6 +19,24 @@ export interface NodeValue {
   /** 节点的输出端点列表 */
   outputs: EndpointValue[]
   /** 节点的元数据，用于存储额外的业务信息 */
+  metadata?: Record<string, unknown>
+}
+
+/**
+ * 节点初始化选项
+ */
+export interface NodeOptions {
+  /** 唯一标识符（如果未提供，将自动生成） */
+  id?: string
+  /** 类型标识 */
+  type: string
+  /** 可读名称 */
+  name?: string
+  /** 输入端点列表 */
+  inputs?: readonly Input[]
+  /** 输出端点列表 */
+  outputs?: readonly Output[]
+  /** 元数据 */
   metadata?: Record<string, unknown>
 }
 
@@ -49,22 +68,15 @@ export class Node {
    * 创建一个节点实例。
    *
    * @param options - 初始化选项
-   * @param options.id - 唯一标识符
+   * @param options.id - 唯一标识符 (可选)
    * @param options.type - 类型标识
    * @param options.name - 可读名称
    * @param options.inputs - 输入端点列表
    * @param options.outputs - 输出端点列表
    * @param options.metadata - 元数据
    */
-  constructor(options: {
-    id: string
-    type: string
-    name?: string
-    inputs?: readonly Input[]
-    outputs?: readonly Output[]
-    metadata?: Record<string, unknown>
-  }) {
-    this.id = options.id
+  constructor(options: NodeOptions) {
+    this.id = options.id ?? generateId('node')
     this.type = options.type
     this.name = options.name
     // 使用 Object.freeze 确保数组不可变

@@ -6,5 +6,8 @@
   "main": "./src/index.ts",
   "devDependencies": {
     "@opencode/tsconfig": "workspace:*"
+  },
+  "dependencies": {
+    "nanoid": "^5.1.6"
   }
 }

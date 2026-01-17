@@ -1,4 +1,4 @@
-import { GraphDefinition } from '../model/graph-definition'
+import { GraphSpec } from '../model/base'
 import { Lookup } from '../lookup'
 import type { Node } from '../model/node'
 import type { Edge } from '../model/edge'
@@ -13,7 +13,7 @@ import type { Edge } from '../model/edge'
  * - **局部分析**：分析变更对特定范围内的节点产生的影响。
  * - **隔离视图**：关注图的某一部分，屏蔽无关细节。
  */
-export class Subgraph extends GraphDefinition {
+export class Subgraph extends GraphSpec {
   /**
    * 子图中包含的节点列表。
    * 可能包含核心节点以及为了保持连通性而引入的边界节点。

@@ -1,3 +1,4 @@
+import { generateId } from '../utils/id'
 import type { ReferenceValue } from './reference'
 import { Reference } from './reference'
 
@@ -13,6 +14,20 @@ export interface EdgeValue {
   /** 边的目标引用（终点） */
   target: ReferenceValue
   /** 边的元数据，用于存储额外的业务信息 */
+  metadata?: Record<string, unknown>
+}
+
+/**
+ * 边初始化选项
+ */
+export interface EdgeOptions {
+  /** 唯一标识符（如果未提供，将自动生成） */
+  id?: string
+  /** 起始引用（可以是 Reference 对象或其持久化值） */
+  source: Reference | ReferenceValue
+  /** 目标引用（可以是 Reference 对象或其持久化值） */
+  target: Reference | ReferenceValue
+  /** 元数据 */
   metadata?: Record<string, unknown>
 }
 
@@ -40,18 +55,13 @@ export class Edge {
    * 创建一个边实例。
    *
    * @param options - 初始化选项
-   * @param options.id - 唯一标识符
-   * @param options.source - 起始引用（可以是 Reference 对象或其持久化值）
-   * @param options.target - 目标引用（可以是 Reference 对象或其持久化值）
+   * @param options.id - 唯一标识符 (可选)
+   * @param options.source - 起始引用
+   * @param options.target - 目标引用
    * @param options.metadata - 元数据
    */
-  constructor(options: {
-    id: string
-    source: Reference | ReferenceValue
-    target: Reference | ReferenceValue
-    metadata?: Record<string, unknown>
-  }) {
-    this.id = options.id
+  constructor(options: EdgeOptions) {
+    this.id = options.id ?? generateId('edge')
     this.source = options.source instanceof Reference ? options.source : new Reference(options.source)
     this.target = options.target instanceof Reference ? options.target : new Reference(options.target)
     this.metadata = options.metadata

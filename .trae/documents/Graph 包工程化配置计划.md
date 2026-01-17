@@ -14,7 +14,7 @@
 
 为以下目录创建 `index.ts` 文件，集中导出该目录下的所有核心类与类型：
 
-* **`src/model/index.ts`**: 导出 `Graph`, `Node`, `Edge`, `Endpoint`, `GraphDefinition` 等核心模型。
+* **`src/model/index.ts`**: 导出 `Graph`, `Node`, `Edge`, `Endpoint`, `GraphSpec` 等核心模型。
 
 * **`src/subgraph/index.ts`**: 导出 `Subgraph` 及 `affectedSubgraph` 等算法函数。
 

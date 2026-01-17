@@ -1,5 +1,5 @@
 import type { Edge } from '../model/edge'
-import type { GraphDefinition } from '../model/graph-definition'
+import type { GraphSpec } from '../model/base'
 import type { LookupView } from '../lookup/view'
 import type { Diagnostic } from './diagnostic'
 import type { Rule } from './rule'
@@ -23,11 +23,11 @@ export interface ValidateOptions {
  * 该方法只验证“描述是否自洽”（引用存在、方向、归属、基础约束），不包含任何执行或调度逻辑。
  * 它通过一系列 Rule 对图进行检查。
  *
- * @param graph - 图对象 (GraphDefinition)
+ * @param graph - 图对象 (GraphSpec)
  * @param options - 校验选项
  * @returns 诊断列表（可直接用于 UI 展示）
  */
-export function validate(graph: GraphDefinition, options: ValidateOptions = {}): Diagnostic[] {
+export function validate(graph: GraphSpec, options: ValidateOptions = {}): Diagnostic[] {
   const lookup = graph.lookup()
   const rules = options.rules ?? standardRules(options)
 
@@ -82,7 +82,7 @@ function identityRule(): Rule {
   }
 }
 
-function checkNodeIds(graph: GraphDefinition, nodeIdSet: Set<string>): Diagnostic[] {
+function checkNodeIds(graph: GraphSpec, nodeIdSet: Set<string>): Diagnostic[] {
   const diagnostics: Diagnostic[] = []
 
   for (const node of graph.nodes) {
@@ -103,7 +103,7 @@ function checkNodeIds(graph: GraphDefinition, nodeIdSet: Set<string>): Diagnosti
 }
 
 function checkEndpointIds(
-  graph: GraphDefinition,
+  graph: GraphSpec,
   endpointIdSet: Set<string>,
 ): Diagnostic[] {
   const diagnostics: Diagnostic[] = []
@@ -143,7 +143,7 @@ function checkEndpointId(
   ]
 }
 
-function checkEdgeIds(graph: GraphDefinition, edgeIdSet: Set<string>): Diagnostic[] {
+function checkEdgeIds(graph: GraphSpec, edgeIdSet: Set<string>): Diagnostic[] {
   const diagnostics: Diagnostic[] = []
 
   for (const edge of graph.edges) {

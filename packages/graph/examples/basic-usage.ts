@@ -38,7 +38,7 @@ const workspace = new GraphWorkspace(initialGraph)
 
 // 4. 定义变更：添加一条连接两个节点的边
 const newEdge = new Edge({
-  id: 'edge-1',
+  // id: 'edge-1', // 自动生成 ID (例如 "edge-V1St...")
   source: { nodeId: 'node-1', endpointId: 'out-1' },
   target: { nodeId: 'node-2', endpointId: 'in-1' }
 })
@@ -56,6 +56,7 @@ const result = workspace.apply(delta, {
 
 // 6. 验证结果
 console.log('New graph has', result.graph.edges.length, 'edge')
+console.log('New edge ID:', newEdge.id)
 
 // 7. 检查受影响的子图
 console.log('Affected nodes:', result.affected.nodes.map(n => n.id))

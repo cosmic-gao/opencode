@@ -1,4 +1,4 @@
-import type { EndpointValue } from './endpoint'
+import type { EndpointOptions, EndpointValue } from './endpoint'
 import { Endpoint } from './endpoint'
 
 /**
@@ -8,7 +8,7 @@ import { Endpoint } from './endpoint'
  * 边可以连接到输入端点，将数据传输给节点。
  */
 export class Input extends Endpoint {
-  constructor(options: EndpointValue) {
+  constructor(options: EndpointOptions) {
     super(options)
   }
 

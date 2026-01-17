@@ -1,3 +1,4 @@
+import { generateId } from '../utils/id'
 import type { ContractValue } from './contract'
 import { Contract } from './contract'
 
@@ -13,6 +14,21 @@ export interface EndpointValue {
   /** 端点的契约（定义了数据流类型和约束） */
   contract: ContractValue
   /** 端点的元数据 */
+  metadata?: Record<string, unknown>
+}
+
+/**
+ * 端点初始化选项
+ * 用于创建端点实例
+ */
+export interface EndpointOptions {
+  /** 唯一标识符（如果未提供，将自动生成 16 位 ID） */
+  id?: string
+  /** 可读名称 */
+  name: string
+  /** 契约（可以是 Contract 对象或其持久化值） */
+  contract: Contract | ContractValue
+  /** 元数据 */
   metadata?: Record<string, unknown>
 }
 
@@ -40,18 +56,13 @@ export class Endpoint {
    * 创建一个端点实例。
    *
    * @param options - 初始化选项
-   * @param options.id - 唯一标识符
+   * @param options.id - 唯一标识符 (可选)
    * @param options.name - 可读名称
-   * @param options.contract - 契约（可以是 Contract 对象或其持久化值）
+   * @param options.contract - 契约
    * @param options.metadata - 元数据
    */
-  constructor(options: {
-    id: string
-    name: string
-    contract: Contract | ContractValue
-    metadata?: Record<string, unknown>
-  }) {
-    this.id = options.id
+  constructor(options: EndpointOptions) {
+    this.id = options.id ?? generateId('ep')
     this.name = options.name
     this.contract = options.contract instanceof Contract
       ? options.contract

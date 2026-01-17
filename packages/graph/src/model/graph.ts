@@ -3,7 +3,7 @@ import { Edge } from './edge'
 import type { NodeValue } from './node'
 import { Node } from './node'
 import { Lookup } from '../lookup'
-import { GraphDefinition } from './graph-definition'
+import { GraphSpec } from './base'
 
 /**
  * 图数据持久化结构
@@ -39,7 +39,7 @@ export interface GraphOptions {
  * - **高性能索引 (Lookup)**：通过继承 GraphDefinition，自动获得基于 Map 的 O(1) 查询能力。
  * - **可序列化 (Serializable)**：支持与 JSON 结构 (GraphValue) 的相互转换。
  */
-export class Graph extends GraphDefinition {
+export class Graph extends GraphSpec {
   readonly nodes: readonly Node[]
   readonly edges: readonly Edge[]
   readonly metadata?: Record<string, unknown>

@@ -1,4 +1,4 @@
-import type { GraphDefinition } from '../model/graph-definition'
+import type { GraphSpec } from '../model/base'
 import type { Edge } from '../model/edge'
 import type { Endpoint } from '../model/endpoint'
 import type { Input } from '../model/input'
@@ -54,7 +54,7 @@ export class IncrementalLookup implements LookupView {
    *
    * @param graph - 可选的初始图定义。如果提供，将建立初始索引。
    */
-  constructor(graph?: GraphDefinition) {
+  constructor(graph?: GraphSpec) {
     if (graph) {
       for (const node of graph.nodes) this.addNode(node)
       for (const edge of graph.edges) this.addEdge(edge)

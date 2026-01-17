@@ -8,14 +8,14 @@ import type { Rule } from '../validate/rule'
 import { defaultRules } from '../validate/validate'
 
 /**
- * 图定义基类 (GraphDefinition)
+ * 图定义基类 (GraphSpec)
  *
  * 该抽象类定义了图（Graph）和子图（Subgraph）的通用结构与行为。
  * 它统一了节点与边的存储访问，以及查表（Lookup）和校验（Validate）的标准接口。
  *
  * @abstract
  */
-export abstract class GraphDefinition {
+export abstract class GraphSpec {
   /**
    * 图中包含的所有节点。
    * 通常为只读数组，以保证数据的不可变性。

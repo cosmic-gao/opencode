@@ -8,7 +8,7 @@
 - **新建目录**: `packages/graph/examples/`
 - **新建文件**:
     - `basic-usage.ts`: 一个完整的可运行脚本，演示以下流程：
-        1. 定义初始图结构 (`GraphDefinition`)。
+        1. 定义初始图结构 (`GraphSpec`)。
         2. 初始化 `GraphWorkspace`。
         3. 构造并应用 `GraphDelta`（添加节点/边）。
         4. 执行 `validate()` 校验图的完整性。

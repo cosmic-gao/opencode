@@ -1,6 +1,6 @@
 import type { Edge } from '../model/edge'
 import type { Endpoint } from '../model/endpoint'
-import type { GraphDefinition } from '../model/graph-definition'
+import type { GraphSpec } from '../model/base'
 import type { Input } from '../model/input'
 import type { Node } from '../model/node'
 import type { Output } from '../model/output'
@@ -48,9 +48,9 @@ export class Lookup implements LookupView {
    * 构造函数会遍历 Graph 的所有节点和边，构建完整的索引映射。
    * 或者从现有的快照 (Snapshot) 直接恢复索引状态。
    *
-   * @param source - 图定义对象 (GraphDefinition) 或 索引快照 (LookupSnapshot)
+   * @param source - 图定义对象 (GraphSpec) 或 索引快照 (LookupSnapshot)
    */
-  constructor(source: GraphDefinition | LookupSnapshot) {
+  constructor(source: GraphSpec | LookupSnapshot) {
     // 预初始化属性，避免 TS 报错（虽然在 helper 中初始化）
     this.nodeById = new Map()
     this.inputById = new Map()
@@ -75,7 +75,7 @@ export class Lookup implements LookupView {
     }
   }
 
-  private isSnapshot(source: GraphDefinition | LookupSnapshot): source is LookupSnapshot {
+  private isSnapshot(source: GraphSpec | LookupSnapshot): source is LookupSnapshot {
     return (source as any).nodeById instanceof Map
   }
 
@@ -109,13 +109,13 @@ export class Lookup implements LookupView {
     this.finalizeEdges(this.nodeOutgoingIds, this.nodeOutgoing)
   }
 
-  private initFromDefinition(graph: GraphDefinition): void {
+  private initFromDefinition(graph: GraphSpec): void {
     this.indexNodes(graph)
     this.indexEdges(graph)
     this.finalizeAllEdges()
   }
 
-  private indexNodes(graph: GraphDefinition): void {
+  private indexNodes(graph: GraphSpec): void {
     for (const node of graph.nodes) {
       this.nodeById.set(node.id, node)
 
@@ -139,7 +139,7 @@ export class Lookup implements LookupView {
     }
   }
 
-  private indexEdges(graph: GraphDefinition): void {
+  private indexEdges(graph: GraphSpec): void {
     for (const edge of graph.edges) {
       this.edgeById.set(edge.id, edge)
 
