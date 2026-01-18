@@ -5,6 +5,13 @@ import type { Registry } from './registry'
 export class Applier {
   constructor(private readonly registry: Registry) {}
 
+  /**
+   * 应用事实补丁，并返回回滚补丁。
+   *
+   * @param patch - 事实补丁
+   * @returns 回滚补丁
+   * @throws 当补丁存在 ID 冲突或引用缺失时抛出错误
+   */
   apply(patch: Patch): UndoPatch {
     this.assert(patch)
 

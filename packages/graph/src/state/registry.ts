@@ -25,80 +25,140 @@ export class Registry {
     }
   }
 
+  /**
+   * 获取指定 ID 的节点。
+   */
   getNode(nodeId: string): Node | undefined {
     return this.nodes.get(nodeId)
   }
 
+  /**
+   * 获取指定 ID 的边。
+   */
   getEdge(edgeId: string): Edge | undefined {
     return this.edges.get(edgeId)
   }
 
+  /**
+   * 检查节点是否存在。
+   */
   hasNode(nodeId: string): boolean {
     return this.nodes.has(nodeId)
   }
 
+  /**
+   * 检查边是否存在。
+   */
   hasEdge(edgeId: string): boolean {
     return this.edges.has(edgeId)
   }
 
+  /**
+   * 检查端点是否存在。
+   */
   hasEndpoint(endpointId: string): boolean {
     return this.endpoints.has(endpointId)
   }
 
+  /**
+   * 获取指定 ID 的端点。
+   */
   getEndpoint(endpointId: string): Endpoint | undefined {
     return this.endpoints.get(endpointId)
   }
 
+  /**
+   * 获取指定 ID 的输入端点。
+   */
   getInput(endpointId: string): Input | undefined {
     return this.inputs.get(endpointId)
   }
 
+  /**
+   * 获取指定 ID 的输出端点。
+   */
   getOutput(endpointId: string): Output | undefined {
     return this.outputs.get(endpointId)
   }
 
+  /**
+   * 获取端点所属的节点 ID。
+   */
   owner(endpointId: string): string | undefined {
     return this.owners.get(endpointId)
   }
 
+  /**
+   * 获取指定节点的所有端点。
+   */
   endpointsOf(nodeId: string): readonly Endpoint[] {
     return this.nodeEndpoints.get(nodeId) ?? []
   }
 
+  /**
+   * 获取所有节点列表。
+   */
   listNodes(): readonly Node[] {
     return [...this.nodes.values()]
   }
 
+  /**
+   * 获取所有边列表。
+   */
   listEdges(): readonly Edge[] {
     return [...this.edges.values()]
   }
 
+  /**
+   * 获取指定节点的出边。
+   */
   outgoing(nodeId: string): readonly Edge[] {
     const edgeIds = this.nodeOutgoing.get(nodeId) ?? []
     return edgeIds.map((edgeId) => this.edges.get(edgeId)).filter((edge): edge is Edge => Boolean(edge))
   }
 
+  /**
+   * 获取指定节点的入边。
+   */
   incoming(nodeId: string): readonly Edge[] {
     const edgeIds = this.nodeIncoming.get(nodeId) ?? []
     return edgeIds.map((edgeId) => this.edges.get(edgeId)).filter((edge): edge is Edge => Boolean(edge))
   }
 
+  /**
+   * 获取连接到指定输入端点的边。
+   */
   inputEdges(inputId: string): readonly Edge[] {
     const edgeIds = this.inputIncoming.get(inputId) ?? []
     return edgeIds.map((edgeId) => this.edges.get(edgeId)).filter((edge): edge is Edge => Boolean(edge))
   }
 
+  /**
+   * 获取从指定输出端点发出的边。
+   */
   outputEdges(outputId: string): readonly Edge[] {
     const edgeIds = this.outputOutgoing.get(outputId) ?? []
     return edgeIds.map((edgeId) => this.edges.get(edgeId)).filter((edge): edge is Edge => Boolean(edge))
   }
 
+  /**
+   * 添加新节点。
+   *
+   * @param node - 节点对象
+   * @throws 当节点 ID 已存在时抛出错误
+   */
   addNode(node: Node): void {
     if (this.nodes.has(node.id)) throw new Error(`Duplicate node id: ${node.id}`)
     this.nodes.set(node.id, node)
     this.indexNode(node)
   }
 
+  /**
+   * 替换现有节点。
+   *
+   * @param node - 新节点对象（ID 必须与旧节点一致）
+   * @throws 当节点 ID 不存在时抛出错误
+   */
   replaceNode(node: Node): void {
     const prev = this.nodes.get(node.id)
     if (!prev) throw new Error(`Missing node id for replace: ${node.id}`)
@@ -107,6 +167,12 @@ export class Registry {
     this.indexNode(node)
   }
 
+  /**
+   * 移除节点。
+   *
+   * @param nodeId - 节点 ID
+   * @throws 当节点 ID 不存在或仍有边连接时抛出错误
+   */
   removeNode(nodeId: string): void {
     const node = this.nodes.get(nodeId)
     if (!node) throw new Error(`Missing node id for remove: ${nodeId}`)
@@ -120,12 +186,24 @@ export class Registry {
     this.nodes.delete(nodeId)
   }
 
+  /**
+   * 添加新边。
+   *
+   * @param edge - 边对象
+   * @throws 当边 ID 已存在时抛出错误
+   */
   addEdge(edge: Edge): void {
     if (this.edges.has(edge.id)) throw new Error(`Duplicate edge id: ${edge.id}`)
     this.edges.set(edge.id, edge)
     this.indexEdge(edge)
   }
 
+  /**
+   * 替换现有边。
+   *
+   * @param edge - 新边对象（ID 必须与旧边一致）
+   * @throws 当边 ID 不存在时抛出错误
+   */
   replaceEdge(edge: Edge): void {
     const prev = this.edges.get(edge.id)
     if (!prev) throw new Error(`Missing edge id for replace: ${edge.id}`)
@@ -134,6 +212,12 @@ export class Registry {
     this.indexEdge(edge)
   }
 
+  /**
+   * 移除边。
+   *
+   * @param edgeId - 边 ID
+   * @throws 当边 ID 不存在时抛出错误
+   */
   removeEdge(edgeId: string): void {
     const edge = this.edges.get(edgeId)
     if (!edge) throw new Error(`Missing edge id for remove: ${edgeId}`)
@@ -224,8 +308,6 @@ export class Registry {
     if (!list) return
     const index = list.indexOf(edgeId)
     if (index < 0) return
-    const last = list.pop()
-    if (last === undefined) return
-    if (index < list.length) list[index] = last
+    list.splice(index, 1)
   }
 }
