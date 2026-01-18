@@ -1,6 +1,5 @@
 import { generateId } from '../utils/id'
-import type { ContractValue } from './contract'
-import { Contract } from './contract'
+import { type ContractValue, Contract } from './contract'
 
 /**
  * 端点数据持久化结构

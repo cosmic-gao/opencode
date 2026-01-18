@@ -1,5 +1,5 @@
 import { Graph, type Edge, type Endpoint, type Input, type Node, type Output } from '../model'
-import type { Patch, UndoPatch } from '.'
+import type { Patch, UndoPatch } from './patch'
 
 export interface StoreOptions {
   nodes?: readonly Node[]

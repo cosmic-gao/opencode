@@ -1,6 +1,5 @@
 import { generateId } from '../utils/id'
-import type { ReferenceValue } from './reference'
-import { Reference } from './reference'
+import { type ReferenceValue, Reference } from './reference'
 
 /**
  * 边数据持久化结构
