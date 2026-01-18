@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "main": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "typecheck:examples": "tsc -p tsconfig.examples.json"
+  },
   "devDependencies": {
     "@opencode/tsconfig": "workspace:*"
   },
