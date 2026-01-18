@@ -40,47 +40,47 @@ export interface LookupView {
    * @param endpointId - 端点 ID
    * @returns 节点 ID
    */
-  getEndpointNodeId: (endpointId: string) => string | undefined
+  owner: (endpointId: string) => string | undefined
 
   /**
    * 获取节点的所有端点（输入和输出）。
    * @param nodeId - 节点 ID
    * @returns 端点列表
    */
-  getNodeEndpoints: (nodeId: string) => readonly Endpoint[]
+  endpoints: (nodeId: string) => readonly Endpoint[]
 
   // --- 边 ID 查询（返回 ID 列表）---
 
   /** 获取连接到指定输入端点的所有边的 ID */
-  getIncomingIds: (inputId: string) => readonly string[]
+  inputIds: (inputId: string) => readonly string[]
   /** 获取从指定输出端点发出的所有边的 ID */
-  getOutgoingIds: (outputId: string) => readonly string[]
+  outputIds: (outputId: string) => readonly string[]
 
   // --- 计数查询（通常比获取列表更快）---
 
   /** 获取连接到指定输入端点的边数量 */
-  getIncomingCount: (inputId: string) => number
+  inputCount: (inputId: string) => number
   /** 获取从指定输出端点发出的边数量 */
-  getOutgoingCount: (outputId: string) => number
+  outputCount: (outputId: string) => number
 
   // --- 边实体查询（返回 Edge 对象列表）---
 
   /** 获取连接到指定输入端点的所有边 */
-  getIncomingEdges: (inputId: string) => readonly Edge[]
+  inputEdges: (inputId: string) => readonly Edge[]
   /** 获取从指定输出端点发出的所有边 */
-  getOutgoingEdges: (outputId: string) => readonly Edge[]
+  outputEdges: (outputId: string) => readonly Edge[]
 
   /**
    * 获取连接到指定节点的所有入边（连接到该节点任意输入端点的边）。
    * @param nodeId - 节点 ID
    * @returns 边列表
    */
-  getNodeIncoming: (nodeId: string) => readonly Edge[]
+  incoming: (nodeId: string) => readonly Edge[]
 
   /**
    * 获取从指定节点发出的所有出边（从该节点任意输出端点发出的边）。
    * @param nodeId - 节点 ID
    * @returns 边列表
    */
-  getNodeOutgoing: (nodeId: string) => readonly Edge[]
+  outgoing: (nodeId: string) => readonly Edge[]
 }

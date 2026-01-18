@@ -1,6 +1,6 @@
-import { Edge, Graph, GraphWorkspace, Input, Node, Output } from '../src/index.ts'
+import { Edge, Graph, Input, Node, Output, Workspace } from '../src/index.ts'
 
-const workspace = new GraphWorkspace(new Graph({ nodes: [], edges: [] }))
+const workspace = new Workspace(new Graph({ nodes: [], edges: [] }))
 
 const result = workspace.update((editor) => {
   const sourceOutput = new Output({
@@ -42,4 +42,3 @@ const result = workspace.update((editor) => {
 void result.graph
 void result.patch
 void result.diagnostics
-

@@ -1,4 +1,4 @@
-import type { GraphStore, Patch } from '../state'
+import type { Store, Patch } from '../state'
 import type { Diagnostic } from './diagnostic'
 
 /**
@@ -17,5 +17,5 @@ export interface Rule {
    * @param patch - 可选的事实补丁（用于增量校验场景）
    * @returns 诊断信息列表
    */
-  evaluate: (state: GraphStore, patch?: Patch) => Diagnostic[]
+  evaluate: (state: Store, patch?: Patch) => Diagnostic[]
 }

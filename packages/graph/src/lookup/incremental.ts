@@ -1,6 +1,7 @@
 import type { Edge, Endpoint, Input, Node, Output } from '../model'
-import type { GraphStore, Patch } from '../state'
+import type { Store, Patch } from '../state'
 import type { LookupView } from './view'
+
 
 /**
  * 增量查表对象 (IncrementalLookup)
@@ -22,17 +23,18 @@ export class IncrementalLookup implements LookupView {
   private readonly endpointOwners: Map<string, string> = new Map()
   
   private readonly nodeEndpoints: Map<string, Endpoint[]> = new Map()
-  private readonly inputEdges: Map<string, string[]> = new Map()
-  private readonly outputEdges: Map<string, string[]> = new Map()
+  private readonly inputEdgeMap: Map<string, string[]> = new Map()
+  private readonly outputEdgeMap: Map<string, string[]> = new Map()
   private readonly nodeIncoming: Map<string, string[]> = new Map()
   private readonly nodeOutgoing: Map<string, string[]> = new Map()
+
 
   /**
    * 创建增量查表对象。
    *
    * @param state - 可选的初始图状态。如果提供，将建立初始索引。
    */
-  constructor(state?: GraphStore) {
+  constructor(state?: Store) {
     if (state) this.rebuild(state)
   }
 
@@ -43,11 +45,12 @@ export class IncrementalLookup implements LookupView {
    * 但 Map 中的值（如数组）仍然是引用的。
    * 此方法主要用于将状态高效转移给不可变的 Lookup 对象。
    */
-  rebuild(state: GraphStore): void {
+  rebuild(state: Store): void {
     this.clear()
     for (const node of state.listNodes()) this.addNode(node)
     for (const edge of state.listEdges()) this.addEdge(edge)
   }
+
 
   applyPatch(patch: Patch): void {
     if (patch.edgeRemove) for (const edgeId of patch.edgeRemove) this.removeEdge(edgeId)
@@ -92,53 +95,55 @@ export class IncrementalLookup implements LookupView {
     return this.outputById.get(id)
   }
 
-  getEndpointNodeId(endpointId: string): string | undefined {
+  owner(endpointId: string): string | undefined {
     return this.endpointOwners.get(endpointId)
   }
 
-  getNodeEndpoints(nodeId: string): readonly Endpoint[] {
+  endpoints(nodeId: string): readonly Endpoint[] {
     return this.nodeEndpoints.get(nodeId) ?? []
   }
 
-  getIncomingIds(inputId: string): readonly string[] {
-    return this.inputEdges.get(inputId) ?? []
+  inputIds(inputId: string): readonly string[] {
+    return this.inputEdgeMap.get(inputId) ?? []
   }
 
-  getOutgoingIds(outputId: string): readonly string[] {
-    return this.outputEdges.get(outputId) ?? []
+  outputIds(outputId: string): readonly string[] {
+    return this.outputEdgeMap.get(outputId) ?? []
   }
 
-  getIncomingCount(inputId: string): number {
-    return this.inputEdges.get(inputId)?.length ?? 0
+  inputCount(inputId: string): number {
+    return this.inputEdgeMap.get(inputId)?.length ?? 0
   }
 
-  getOutgoingCount(outputId: string): number {
-    return this.outputEdges.get(outputId)?.length ?? 0
+  outputCount(outputId: string): number {
+    return this.outputEdgeMap.get(outputId)?.length ?? 0
   }
 
-  getIncomingEdges(inputId: string): readonly Edge[] {
-    const edgeIds = this.inputEdges.get(inputId)
+  inputEdges(inputId: string): readonly Edge[] {
+    const edgeIds = this.inputEdgeMap.get(inputId)
     if (!edgeIds) return []
     return this.getEdges(edgeIds)
   }
 
-  getOutgoingEdges(outputId: string): readonly Edge[] {
-    const edgeIds = this.outputEdges.get(outputId)
+  outputEdges(outputId: string): readonly Edge[] {
+    const edgeIds = this.outputEdgeMap.get(outputId)
     if (!edgeIds) return []
     return this.getEdges(edgeIds)
   }
 
-  getNodeIncoming(nodeId: string): readonly Edge[] {
+
+  incoming(nodeId: string): readonly Edge[] {
     const edgeIds = this.nodeIncoming.get(nodeId)
     if (!edgeIds) return []
     return this.getEdges(edgeIds)
   }
 
-  getNodeOutgoing(nodeId: string): readonly Edge[] {
+  outgoing(nodeId: string): readonly Edge[] {
     const edgeIds = this.nodeOutgoing.get(nodeId)
     if (!edgeIds) return []
     return this.getEdges(edgeIds)
   }
+
 
   // --- 内部状态更新方法 ---
 
@@ -181,9 +186,9 @@ export class IncrementalLookup implements LookupView {
       this.endpointById.delete(input.id)
       this.endpointOwners.delete(input.id)
       if (!isKept) {
-        const edgeIds = this.inputEdges.get(input.id)
+        const edgeIds = this.inputEdgeMap.get(input.id)
         if (edgeIds && edgeIds.length > 0) throw new Error(`Input has edges: ${input.id}`)
-        this.inputEdges.delete(input.id)
+        this.inputEdgeMap.delete(input.id)
       }
     }
     for (const output of node.outputs) {
@@ -192,11 +197,12 @@ export class IncrementalLookup implements LookupView {
       this.endpointById.delete(output.id)
       this.endpointOwners.delete(output.id)
       if (!isKept) {
-        const edgeIds = this.outputEdges.get(output.id)
+        const edgeIds = this.outputEdgeMap.get(output.id)
         if (edgeIds && edgeIds.length > 0) throw new Error(`Output has edges: ${output.id}`)
-        this.outputEdges.delete(output.id)
+        this.outputEdgeMap.delete(output.id)
       }
     }
+
   }
 
   private addNodeEndpoints(node: Node): void {
@@ -220,8 +226,8 @@ export class IncrementalLookup implements LookupView {
     if (this.edgeById.has(edge.id)) return
     this.edgeById.set(edge.id, edge)
 
-    this.ensureList(this.outputEdges, edge.source.endpointId).push(edge.id)
-    this.ensureList(this.inputEdges, edge.target.endpointId).push(edge.id)
+    this.ensureList(this.outputEdgeMap, edge.source.endpointId).push(edge.id)
+    this.ensureList(this.inputEdgeMap, edge.target.endpointId).push(edge.id)
     this.ensureList(this.nodeOutgoing, edge.source.nodeId).push(edge.id)
     this.ensureList(this.nodeIncoming, edge.target.nodeId).push(edge.id)
   }
@@ -230,8 +236,8 @@ export class IncrementalLookup implements LookupView {
     const edge = this.edgeById.get(edgeId)
     if (!edge) return
 
-    this.removeFromList(this.outputEdges.get(edge.source.endpointId), edgeId)
-    this.removeFromList(this.inputEdges.get(edge.target.endpointId), edgeId)
+    this.removeFromList(this.outputEdgeMap.get(edge.source.endpointId), edgeId)
+    this.removeFromList(this.inputEdgeMap.get(edge.target.endpointId), edgeId)
     this.removeFromList(this.nodeOutgoing.get(edge.source.nodeId), edgeId)
     this.removeFromList(this.nodeIncoming.get(edge.target.nodeId), edgeId)
 
@@ -244,17 +250,18 @@ export class IncrementalLookup implements LookupView {
       throw new Error(`Missing edge id for replace: ${edge.id}`)
     }
 
-    this.removeFromList(this.outputEdges.get(existing.source.endpointId), existing.id)
-    this.removeFromList(this.inputEdges.get(existing.target.endpointId), existing.id)
+    this.removeFromList(this.outputEdgeMap.get(existing.source.endpointId), existing.id)
+    this.removeFromList(this.inputEdgeMap.get(existing.target.endpointId), existing.id)
     this.removeFromList(this.nodeOutgoing.get(existing.source.nodeId), existing.id)
     this.removeFromList(this.nodeIncoming.get(existing.target.nodeId), existing.id)
 
     this.edgeById.set(edge.id, edge)
-    this.ensureList(this.outputEdges, edge.source.endpointId).push(edge.id)
-    this.ensureList(this.inputEdges, edge.target.endpointId).push(edge.id)
+    this.ensureList(this.outputEdgeMap, edge.source.endpointId).push(edge.id)
+    this.ensureList(this.inputEdgeMap, edge.target.endpointId).push(edge.id)
     this.ensureList(this.nodeOutgoing, edge.source.nodeId).push(edge.id)
     this.ensureList(this.nodeIncoming, edge.target.nodeId).push(edge.id)
   }
+
 
   private removeFromList(list: string[] | undefined, value: string): void {
     if (!list || list.length === 0) return
@@ -295,10 +302,11 @@ export class IncrementalLookup implements LookupView {
     this.edgeById.clear()
     this.endpointOwners.clear()
     this.nodeEndpoints.clear()
-    this.inputEdges.clear()
-    this.outputEdges.clear()
+    this.inputEdgeMap.clear()
+    this.outputEdgeMap.clear()
     this.nodeIncoming.clear()
     this.nodeOutgoing.clear()
   }
+
 
 }

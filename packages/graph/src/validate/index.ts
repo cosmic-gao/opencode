@@ -1,3 +1,5 @@
 export * from './diagnostic'
 export * from './rule'
-export * from './validate'
+export * from './options'
+export * from './validator'
+export * from './rules'

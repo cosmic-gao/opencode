@@ -1,39 +1,40 @@
 import { Graph, type Edge, type Node } from '../model'
 import { IncrementalLookup } from '../lookup'
-import { type Diagnostic, type ValidateOptions, validate } from '../validate'
-import { GraphStore, type Patch, type UndoPatch } from '../state'
+import { type Diagnostic, type ValidateOptions, check } from '../validate'
+import { Store, type Patch, type UndoPatch } from '../state'
+
 
 /**
  * 更新结果
  */
-export interface GraphResult {
+export interface Result {
   graph: Graph
   patch: Patch
   diagnostics: readonly Diagnostic[]
 }
 
 /**
- * 图编辑器 (GraphEditor)
+ * 图编辑器 (Editor)
  *
  * 该接口是 Workspace.update 的唯一写入口，用于表达意图并生成事实补丁。
  */
-export interface GraphEditor {
+export interface Editor {
   createNode(node: Node): void
   replaceNode(node: Node): void
   removeNode(nodeId: string): void
   createEdge(edge: Edge): void
   replaceEdge(edge: Edge): void
   removeEdge(edgeId: string): void
-  applyPatch(patch: Patch): void
+  apply(patch: Patch): void
 }
 
-export class GraphWorkspace {
-  private state: GraphStore
+export class Workspace {
+  private state: Store
   private index: IncrementalLookup
   private graphSnapshot: Graph
 
   constructor(graph: Graph) {
-    this.state = GraphStore.fromGraph(graph)
+    this.state = Store.from(graph)
     this.index = new IncrementalLookup(this.state)
     this.graphSnapshot = graph
   }
@@ -51,18 +52,19 @@ export class GraphWorkspace {
    *   transaction.createNode(new Node({ type: 'task', inputs: [], outputs: [] }))
    * })
    */
-  update(updater: (editor: GraphEditor) => void, options: ValidateOptions = {}): GraphResult {
+  update(updater: (editor: Editor) => void, options: ValidateOptions = {}): Result {
     const undoList: UndoPatch[] = []
     const patchLog = new PatchLog()
-    const editor = new GraphEdit(this.state, this.index, patchLog, undoList)
+    const editor = new Edit(this.state, this.index, patchLog, undoList)
 
     try {
       updater(editor)
 
       const patch = patchLog.createPatch()
-      const diagnostics = validate(this.state, patch, options)
+      const diagnostics = check(this.state, patch, options)
       const graph = this.state.toGraph()
-      this.throwIfInvalid(diagnostics)
+      this.assert(diagnostics)
+
 
       this.graphSnapshot = graph
 
@@ -87,8 +89,8 @@ export class GraphWorkspace {
    * @returns 更新结果
    * @throws 当补丁应用失败或校验失败时抛出错误，且状态会回滚
    */
-  applyPatch(patch: Patch, options: ValidateOptions = {}): GraphResult {
-    return this.update((editor) => editor.applyPatch(patch), options)
+  apply(patch: Patch, options: ValidateOptions = {}): Result {
+    return this.update((editor) => editor.apply(patch), options)
   }
 
   /**
@@ -100,7 +102,7 @@ export class GraphWorkspace {
     return this.graphSnapshot
   }
 
-  private throwIfInvalid(diagnostics: readonly Diagnostic[]): void {
+  private assert(diagnostics: readonly Diagnostic[]): void {
     const errorList = diagnostics.filter((diagnostic) => diagnostic.level === 'error')
     if (errorList.length === 0) return
     throw new Error(`Graph validation failed: ${errorList.map((diagnostic) => diagnostic.message).join(', ')}`)
@@ -136,13 +138,13 @@ class PatchLog {
   }
 }
 
-class GraphEdit implements GraphEditor {
-  private readonly state: GraphStore
+class Edit implements Editor {
+  private readonly state: Store
   private readonly index: IncrementalLookup
   private readonly patchLog: PatchLog
   private readonly undoList: UndoPatch[]
 
-  constructor(state: GraphStore, index: IncrementalLookup, patchLog: PatchLog, undoList: UndoPatch[]) {
+  constructor(state: Store, index: IncrementalLookup, patchLog: PatchLog, undoList: UndoPatch[]) {
     this.state = state
     this.index = index
     this.patchLog = patchLog
@@ -150,31 +152,31 @@ class GraphEdit implements GraphEditor {
   }
 
   createNode(node: Node): void {
-    this.applyPatch({ nodeAdd: [node] })
+    this.apply({ nodeAdd: [node] })
   }
 
   replaceNode(node: Node): void {
-    this.applyPatch({ nodeReplace: [node] })
+    this.apply({ nodeReplace: [node] })
   }
 
   removeNode(nodeId: string): void {
     const edgeIds = this.collectEdges(nodeId)
-    this.applyPatch({ edgeRemove: edgeIds, nodeRemove: [nodeId] })
+    this.apply({ edgeRemove: edgeIds, nodeRemove: [nodeId] })
   }
 
   createEdge(edge: Edge): void {
-    this.applyPatch({ edgeAdd: [edge] })
+    this.apply({ edgeAdd: [edge] })
   }
 
   replaceEdge(edge: Edge): void {
-    this.applyPatch({ edgeReplace: [edge] })
+    this.apply({ edgeReplace: [edge] })
   }
 
   removeEdge(edgeId: string): void {
-    this.applyPatch({ edgeRemove: [edgeId] })
+    this.apply({ edgeRemove: [edgeId] })
   }
 
-  applyPatch(patch: Patch): void {
+  apply(patch: Patch): void {
     const undo = this.state.apply(patch)
     this.index.applyPatch(patch)
     this.patchLog.addPatch(patch)
@@ -183,8 +185,8 @@ class GraphEdit implements GraphEditor {
 
   private collectEdges(nodeId: string): string[] {
     const edgeIds: string[] = []
-    for (const edge of this.state.getNodeIncoming(nodeId)) edgeIds.push(edge.id)
-    for (const edge of this.state.getNodeOutgoing(nodeId)) edgeIds.push(edge.id)
+    for (const edge of this.state.incoming(nodeId)) edgeIds.push(edge.id)
+    for (const edge of this.state.outgoing(nodeId)) edgeIds.push(edge.id)
     return [...new Set(edgeIds)]
   }
 }

@@ -22,7 +22,7 @@ export class Lookup implements LookupView {
 
   // --- 关系索引 ---
   private readonly endpointOwners: Map<string, string>
-  
+
   // 辅助构建的中间 ID 列表，用于最终生成只读的 Edge 数组
   private readonly inputEdgeIds: Map<string, string[]>
   private readonly outputEdgeIds: Map<string, string[]>
@@ -31,8 +31,8 @@ export class Lookup implements LookupView {
 
   // --- 最终暴露的只读邻接表 ---
   private readonly nodeEndpoints: Map<string, readonly Endpoint[]>
-  private readonly inputEdges: Map<string, readonly Edge[]>
-  private readonly outputEdges: Map<string, readonly Edge[]>
+  private readonly inputEdgeMap: Map<string, readonly Edge[]>
+  private readonly outputEdgeMap: Map<string, readonly Edge[]>
   private readonly nodeIncoming: Map<string, readonly Edge[]>
   private readonly nodeOutgoing: Map<string, readonly Edge[]>
 
@@ -56,10 +56,11 @@ export class Lookup implements LookupView {
     this.nodeIncomingIds = new Map()
     this.nodeOutgoingIds = new Map()
     this.nodeEndpoints = new Map()
-    this.inputEdges = new Map()
-    this.outputEdges = new Map()
+    this.inputEdgeMap = new Map()
+    this.outputEdgeMap = new Map()
     this.nodeIncoming = new Map()
     this.nodeOutgoing = new Map()
+
 
     this.initFromDefinition(graph)
   }
@@ -108,11 +109,12 @@ export class Lookup implements LookupView {
   }
 
   private finalizeAllEdges(): void {
-    this.finalizeEdges(this.inputEdgeIds, this.inputEdges)
-    this.finalizeEdges(this.outputEdgeIds, this.outputEdges)
+    this.finalizeEdges(this.inputEdgeIds, this.inputEdgeMap)
+    this.finalizeEdges(this.outputEdgeIds, this.outputEdgeMap)
     this.finalizeEdges(this.nodeIncomingIds, this.nodeIncoming)
     this.finalizeEdges(this.nodeOutgoingIds, this.nodeOutgoing)
   }
+
 
   private ensureEdgeList(map: Map<string, string[]>, key: string): string[] {
     let list = map.get(key)
@@ -157,45 +159,47 @@ export class Lookup implements LookupView {
     return this.outputById.get(id)
   }
 
-  getEndpointNodeId(endpointId: string): string | undefined {
+  owner(endpointId: string): string | undefined {
     return this.endpointOwners.get(endpointId)
   }
 
-  getNodeEndpoints(nodeId: string): readonly Endpoint[] {
+  endpoints(nodeId: string): readonly Endpoint[] {
     return this.nodeEndpoints.get(nodeId) ?? []
   }
 
-  getIncomingIds(inputId: string): readonly string[] {
+  inputIds(inputId: string): readonly string[] {
     return this.inputEdgeIds.get(inputId) ?? []
   }
 
-  getOutgoingIds(outputId: string): readonly string[] {
+  outputIds(outputId: string): readonly string[] {
     return this.outputEdgeIds.get(outputId) ?? []
   }
 
-  getIncomingCount(inputId: string): number {
+  inputCount(inputId: string): number {
     return this.inputEdgeIds.get(inputId)?.length ?? 0
   }
 
-  getOutgoingCount(outputId: string): number {
+  outputCount(outputId: string): number {
     return this.outputEdgeIds.get(outputId)?.length ?? 0
   }
 
-  getIncomingEdges(inputId: string): readonly Edge[] {
-    return this.inputEdges.get(inputId) ?? []
+  inputEdges(inputId: string): readonly Edge[] {
+    return this.inputEdgeMap.get(inputId) ?? []
   }
 
-  getOutgoingEdges(outputId: string): readonly Edge[] {
-    return this.outputEdges.get(outputId) ?? []
+  outputEdges(outputId: string): readonly Edge[] {
+    return this.outputEdgeMap.get(outputId) ?? []
   }
 
-  getNodeIncoming(nodeId: string): readonly Edge[] {
+
+  incoming(nodeId: string): readonly Edge[] {
     return this.nodeIncoming.get(nodeId) ?? []
   }
 
-  getNodeOutgoing(nodeId: string): readonly Edge[] {
+  outgoing(nodeId: string): readonly Edge[] {
     return this.nodeOutgoing.get(nodeId) ?? []
   }
+
 
   private finalizeEdges(
     source: Map<string, string[]>,

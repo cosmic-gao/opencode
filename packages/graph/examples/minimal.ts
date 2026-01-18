@@ -1,4 +1,4 @@
-import { Edge, Graph, GraphStore, Input, Lookup, Node, Output, validateAll } from '../src/index.ts'
+import { Edge, Graph, Input, Lookup, Node, Output, Store, checkAll } from '../src/index.ts'
 
 const sourceOutput = new Output({
   id: 'sourceOutput',
@@ -33,8 +33,8 @@ const edge = new Edge({
 const graph = new Graph({ nodes: [sourceNode, targetNode], edges: [edge] })
 
 const lookup = new Lookup(graph)
-const store = GraphStore.fromGraph(graph)
-const diagnostics = validateAll(store, { matchFlow: true })
+const store = Store.from(graph)
+const diagnostics = checkAll(store, { matchFlow: true })
 
 const resolvedSource = lookup.getNode(sourceNode.id)
 const resolvedEdge = lookup.getEdge(edge.id)
@@ -42,4 +42,3 @@ const resolvedEdge = lookup.getEdge(edge.id)
 void diagnostics
 void resolvedSource
 void resolvedEdge
-
