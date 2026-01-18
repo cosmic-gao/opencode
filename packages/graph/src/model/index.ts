@@ -1,7 +1,6 @@
 export * from './contract'
 export * from './edge'
 export * from './endpoint'
-export * from './base'
 export * from './graph'
 export * from './input'
 export * from './node'
