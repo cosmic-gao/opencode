@@ -1,5 +1,5 @@
-import { type Edge, type Patch } from '../../../core';
-import type { Diagnostic, GraphState, Rule, ValidateOptions } from '../validator';
+import type { Edge, Patch } from '../../../core'
+import type { Diagnostic, GraphState, Rule, ValidateOptions } from '..'
 
 /**
  * 基数校验规则 (Cardinality)
@@ -11,7 +11,7 @@ import type { Diagnostic, GraphState, Rule, ValidateOptions } from '../validator
  * @param options - 校验选项
  * @returns 校验规则实例
  */
-export function cardinalityRule(options: ValidateOptions): Rule {
+export const cardinalityRule = (options: ValidateOptions): Rule => {
   const allowMultiple = options.allowMultiple === true;
 
   return {

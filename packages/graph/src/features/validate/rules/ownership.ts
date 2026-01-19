@@ -1,5 +1,5 @@
 import { type Edge, type Patch } from '../../../core';
-import type { Diagnostic, GraphState, Rule } from '../validator';
+import type { Diagnostic, GraphState, Rule } from '..';
 
 /**
  * 规则：端点归属权 (Ownership)

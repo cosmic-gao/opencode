@@ -7,7 +7,7 @@ import { Output } from './output'
  * 节点数据持久化结构
  * 用于序列化和反序列化节点数据
  */
-export interface NodeValue {
+export interface NodeValue<T = Record<string, unknown>> {
   /** 节点的唯一标识符 */
   id: string
   /** 节点的类型标识，用于区分不同功能的节点 */
@@ -19,13 +19,13 @@ export interface NodeValue {
   /** 节点的输出端点列表 */
   outputs: EndpointValue[]
   /** 节点的元数据，用于存储额外的业务信息 */
-  metadata?: Record<string, unknown>
+  metadata?: T
 }
 
 /**
  * 节点初始化选项
  */
-export interface NodeOptions {
+export interface NodeOptions<T = unknown> {
   /** 唯一标识符（如果未提供，将自动生成） */
   id?: string
   /** 类型标识 */
@@ -37,7 +37,7 @@ export interface NodeOptions {
   /** 输出端点列表 */
   outputs?: readonly Output[]
   /** 元数据 */
-  metadata?: Record<string, unknown>
+  metadata?: T
 }
 
 /**
@@ -50,7 +50,7 @@ export interface NodeOptions {
  * - **不可变性 (Immutable)**：节点实例一旦创建，其属性不可被修改。
  * - **可序列化**：支持与 JSON 结构 (NodeValue) 的相互转换。
  */
-export class Node {
+export class Node<T = Record<string, unknown>> {
   /** 节点的唯一标识符 */
   readonly id: string
   /** 节点的类型标识 */
@@ -62,7 +62,7 @@ export class Node {
   /** 节点的输出端点列表（只读） */
   readonly outputs: readonly Output[]
   /** 节点的元数据 */
-  readonly metadata?: Record<string, unknown>
+  readonly metadata?: T
 
   /**
    * 创建一个节点实例。
@@ -75,7 +75,7 @@ export class Node {
    * @param options.outputs - 输出端点列表
    * @param options.metadata - 元数据
    */
-  constructor(options: NodeOptions) {
+  constructor(options: NodeOptions<T>) {
     this.id = options.id ?? useId('node')
     this.type = options.type
     this.name = options.name
@@ -99,11 +99,11 @@ export class Node {
    *   outputs: []
    * });
    */
-  static fromValue(value: NodeValue): Node {
+  static fromValue<T = Record<string, unknown>>(value: NodeValue<T>): Node<T> {
     const inputs = value.inputs.map((endpoint) => Input.fromValue(endpoint))
     const outputs = value.outputs.map((endpoint) => Output.fromValue(endpoint))
 
-    return new Node({
+    return new Node<T>({
       id: value.id,
       type: value.type,
       name: value.name,
@@ -118,7 +118,7 @@ export class Node {
    *
    * @returns 节点持久化结构 (NodeValue)
    */
-  toValue(): NodeValue {
+  toValue(): NodeValue<T> {
     return {
       id: this.id,
       type: this.type,

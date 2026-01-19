@@ -4,7 +4,7 @@ import type { Edge, Endpoint, Input, Node, Output } from '../model'
  * 查表视图接口 (Scope)
  *
  * 定义了图查询的统一接口，支持 O(1) 复杂度的快速访问。
- * `Static`（不可变）和 `Mutable`（可变）均实现了此接口。
+ * `Static`（静态）和 `Index`（索引）均实现了此接口。
  *
  * 设计意图：
  * - **统一接口**：使得算法（如校验、遍历）可以透明地工作在全量图或增量工作区上。

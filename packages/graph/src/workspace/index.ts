@@ -1,4 +1,4 @@
-import { type Edge, Graph, Mutable, type Node, type Patch, Store, type UndoPatch } from '../core';
+import { type Edge, type Node, type Patch, Store, type UndoPatch, Graph } from '../core';
 import type { Diagnostic } from '../common';
 import { type ValidateOptions, Validator } from '../features';
 
@@ -75,11 +75,10 @@ export interface Editor {
  * - **事务性更新**：通过 update 方法提供原子性的更新操作，失败自动回滚。
  * - **实时校验**：每次更新后自动运行增量校验，确保数据一致性。
  * - **快照管理**：每次更新成功后生成新的不可变 Graph 快照。
- * - **增量索引**：内部维护 IncrementalLookup，提供高性能查询。
+ * - **增量索引**：内部维护 Index，提供高性能查询。
  */
 export class Workspace {
   private state: Store;
-  private index: Mutable;
   private graphSnapshot: Graph;
 
   /**
@@ -89,7 +88,6 @@ export class Workspace {
    */
   constructor(graph: Graph) {
     this.state = Store.from(graph);
-    this.index = new Mutable(this.state);
     this.graphSnapshot = graph;
   }
 
@@ -110,7 +108,7 @@ export class Workspace {
   update(updater: (editor: Editor) => void, options: ValidateOptions = {}): Result {
     const undoList: UndoPatch[] = [];
     const patchLog = new PatchLog();
-    const editor = new Edit(this.state, this.index, patchLog, undoList);
+    const editor = new Edit(this.state, patchLog, undoList);
 
     try {
       updater(editor);
@@ -128,7 +126,6 @@ export class Workspace {
       for (let index = undoList.length - 1; index >= 0; index--) {
         const undo = undoList[index];
         if (!undo) continue;
-        this.index.applyPatch(undo);
         this.state.apply(undo);
       }
       // 恢复快照引用（虽然 state 已回滚，但为了保险起见重新生成）
@@ -180,12 +177,16 @@ class PatchLog {
     if (patch.edgeAdd) this.addedEdges.push(...patch.edgeAdd);
     if (patch.nodeReplace) this.replacedNodes.push(...patch.nodeReplace);
     if (patch.edgeReplace) this.replacedEdges.push(...patch.edgeReplace);
-    if (patch.nodeRemove) { for (const nodeId of patch.nodeRemove) {
+    if (patch.nodeRemove) {
+      for (const nodeId of patch.nodeRemove) {
         this.removedNodeIds.add(nodeId);
-      } }
-    if (patch.edgeRemove) { for (const edgeId of patch.edgeRemove) {
+      }
+    }
+    if (patch.edgeRemove) {
+      for (const edgeId of patch.edgeRemove) {
         this.removedEdgeIds.add(edgeId);
-      } }
+      }
+    }
   }
 
   createPatch(): Patch {
@@ -210,13 +211,11 @@ class PatchLog {
 
 class Edit implements Editor {
   private readonly state: Store;
-  private readonly index: Mutable;
   private readonly patchLog: PatchLog;
   private readonly undoList: UndoPatch[];
 
-  constructor(state: Store, index: Mutable, patchLog: PatchLog, undoList: UndoPatch[]) {
+  constructor(state: Store, patchLog: PatchLog, undoList: UndoPatch[]) {
     this.state = state;
-    this.index = index;
     this.patchLog = patchLog;
     this.undoList = undoList;
   }
@@ -249,7 +248,6 @@ class Edit implements Editor {
 
   apply(patch: Patch): void {
     const undo = this.state.apply(patch);
-    this.index.applyPatch(patch);
     this.patchLog.addPatch(patch);
     this.undoList.push(undo);
   }

@@ -1,6 +1,5 @@
-import type { Edge, Endpoint, Input, Node, Output } from '../../core/model'
-import type { Patch } from '../../core/state/patch'
 import type { Diagnostic } from '../../common'
+import type { Edge, Endpoint, Input, Node, Output, Patch } from '../../core'
 import {
   cardinalityRule,
   directionRule,

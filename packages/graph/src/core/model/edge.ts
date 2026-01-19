@@ -5,7 +5,7 @@ import { type ReferenceValue, Reference } from './reference'
  * 边数据持久化结构
  * 用于序列化和反序列化边数据
  */
-export interface EdgeValue {
+export interface EdgeValue<T = Record<string, unknown>> {
   /** 边的唯一标识符 */
   id: string
   /** 边的起始引用（源头） */
@@ -13,13 +13,13 @@ export interface EdgeValue {
   /** 边的目标引用（终点） */
   target: ReferenceValue
   /** 边的元数据，用于存储额外的业务信息 */
-  metadata?: Record<string, unknown>
+  metadata?: T
 }
 
 /**
  * 边初始化选项
  */
-export interface EdgeOptions {
+export interface EdgeOptions<T = unknown> {
   /** 唯一标识符（如果未提供，将自动生成） */
   id?: string
   /** 起始引用（可以是 Reference 对象或其持久化值） */
@@ -27,7 +27,7 @@ export interface EdgeOptions {
   /** 目标引用（可以是 Reference 对象或其持久化值） */
   target: Reference | ReferenceValue
   /** 元数据 */
-  metadata?: Record<string, unknown>
+  metadata?: T
 }
 
 /**
@@ -40,7 +40,7 @@ export interface EdgeOptions {
  * - **不可变性 (Immutable)**：边实例一旦创建，其属性不可被修改。
  * - **引用连接**：通过 Reference 对象间接引用节点和端点，而不是直接持有对象引用，这有利于序列化和解耦。
  */
-export class Edge {
+export class Edge<T = Record<string, unknown>> {
   /** 边的唯一标识符 */
   readonly id: string
   /** 边的起始引用 */
@@ -48,7 +48,7 @@ export class Edge {
   /** 边的目标引用 */
   readonly target: Reference
   /** 边的元数据 */
-  readonly metadata?: Record<string, unknown>
+  readonly metadata?: T
 
   /**
    * 创建一个边实例。
@@ -59,7 +59,7 @@ export class Edge {
    * @param options.target - 目标引用
    * @param options.metadata - 元数据
    */
-  constructor(options: EdgeOptions) {
+  constructor(options: EdgeOptions<T>) {
     this.id = options.id ?? useId('edge')
     this.source = options.source instanceof Reference ? options.source : new Reference(options.source)
     this.target = options.target instanceof Reference ? options.target : new Reference(options.target)
@@ -79,8 +79,8 @@ export class Edge {
    *   target: { nodeId: 'n2', endpointId: 'in' }
    * });
    */
-  static fromValue(value: EdgeValue): Edge {
-    return new Edge({
+  static fromValue<T = Record<string, unknown>>(value: EdgeValue<T>): Edge<T> {
+    return new Edge<T>({
       id: value.id,
       source: value.source,
       target: value.target,
@@ -93,7 +93,7 @@ export class Edge {
    *
    * @returns 边持久化结构 (EdgeValue)
    */
-  toValue(): EdgeValue {
+  toValue(): EdgeValue<T> {
     return {
       id: this.id,
       source: this.source.toValue(),

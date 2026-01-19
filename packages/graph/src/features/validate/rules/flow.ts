@@ -1,5 +1,5 @@
 import { type Edge, type Endpoint, type Patch } from '../../../core';
-import type { Diagnostic, GraphState, Rule, ValidateOptions } from '../validator';
+import type { Diagnostic, GraphState, Rule, ValidateOptions } from '..';
 
 /**
  * 规则：数据流兼容性 (Flow)规则：流类型匹配

@@ -1,12 +1,7 @@
-import { type Edge, type Patch } from '../../../core';
-import type { Diagnostic, GraphState, Rule } from '../validator';
+import type { Edge, Patch } from '../../../core'
+import type { Diagnostic, GraphState, Rule } from '..'
 
-/**
- * 规则：方向性 (Direction)规则：连接方向
- * 确保边是从 Output 连接到 Input。
- */
-export function directionRule(): Rule {
-  return {
+export const directionRule = (): Rule => ({
     name: 'direction',
     evaluate(state, patch) {
       const diagnostics: Diagnostic[] = [];
@@ -36,8 +31,7 @@ export function directionRule(): Rule {
 
       return diagnostics;
     },
-  };
-}
+});
 
 function listEdges(state: GraphState, patch: Patch): readonly Edge[] {
   const edgeMap = new Map<string, Edge>();

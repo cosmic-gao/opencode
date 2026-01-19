@@ -1,5 +1,6 @@
 import type { Edge, Endpoint, Graph, Input, Node, Output } from '../model'
 import type { Scope } from './scope'
+import { ListMap } from './list-map'
 
 /**
  * 查表对象 (Static)
@@ -24,10 +25,11 @@ export class Static implements Scope {
   private readonly owners: Map<string, string>
 
   // 辅助构建的中间 ID 列表，用于最终生成只读的 Edge 数组
-  private readonly inputRefs: Map<string, string[]>
-  private readonly outputRefs: Map<string, string[]>
-  private readonly incomingRefs: Map<string, string[]>
-  private readonly outgoingRefs: Map<string, string[]>
+  // 使用 ListMap 抽象
+  private readonly inputRefs = new ListMap<string>()
+  private readonly outputRefs = new ListMap<string>()
+  private readonly incomingRefs = new ListMap<string>()
+  private readonly outgoingRefs = new ListMap<string>()
 
   // --- 最终暴露的只读邻接表 ---
   private readonly nodeEndpoints: Map<string, readonly Endpoint[]>
@@ -51,10 +53,7 @@ export class Static implements Scope {
     this.allEndpoints = new Map()
     this.edges = new Map()
     this.owners = new Map()
-    this.inputRefs = new Map()
-    this.outputRefs = new Map()
-    this.incomingRefs = new Map()
-    this.outgoingRefs = new Map()
+    
     this.nodeEndpoints = new Map()
     this.inputEdgeMap = new Map()
     this.outputEdgeMap = new Map()
@@ -74,7 +73,7 @@ export class Static implements Scope {
   }
 
   private loadNodes(graph: Graph): void {
-    for (const node of graph.nodes) {
+    for (const node of graph.nodes.values()) {
       this.nodes.set(node.id, node)
 
       const endpoints: Endpoint[] = []
@@ -98,31 +97,21 @@ export class Static implements Scope {
   }
 
   private loadEdges(graph: Graph): void {
-    for (const edge of graph.edges) {
+    for (const edge of graph.edges.values()) {
       this.edges.set(edge.id, edge)
 
-      this.ensure(this.outputRefs, edge.source.endpointId).push(edge.id)
-      this.ensure(this.inputRefs, edge.target.endpointId).push(edge.id)
-      this.ensure(this.outgoingRefs, edge.source.nodeId).push(edge.id)
-      this.ensure(this.incomingRefs, edge.target.nodeId).push(edge.id)
+      this.outputRefs.ensure(edge.source.endpointId).push(edge.id)
+      this.inputRefs.ensure(edge.target.endpointId).push(edge.id)
+      this.outgoingRefs.ensure(edge.source.nodeId).push(edge.id)
+      this.incomingRefs.ensure(edge.target.nodeId).push(edge.id)
     }
   }
 
   private finalize(): void {
-    this.resolve(this.inputRefs, this.inputEdgeMap)
-    this.resolve(this.outputRefs, this.outputEdgeMap)
-    this.resolve(this.incomingRefs, this.nodeIncoming)
-    this.resolve(this.outgoingRefs, this.nodeOutgoing)
-  }
-
-
-  private ensure(map: Map<string, string[]>, key: string): string[] {
-    let list = map.get(key)
-    if (!list) {
-      list = []
-      map.set(key, list)
-    }
-    return list
+    this.resolve(this.inputRefs.innerMap, this.inputEdgeMap)
+    this.resolve(this.outputRefs.innerMap, this.outputEdgeMap)
+    this.resolve(this.incomingRefs.innerMap, this.nodeIncoming)
+    this.resolve(this.outgoingRefs.innerMap, this.nodeOutgoing)
   }
 
   // --- 查询接口实现 ---
