@@ -1,5 +1,6 @@
 import { type Graph, Store } from '../../core';
-import { type Diagnostic, type Rule, type ValidateOptions, Validator } from './validator';
+import type { Diagnostic } from '../../common';
+import { type Rule, type ValidateOptions, Validator } from './validator';
 
 /**
  * 在不可变图快照上执行全量校验。

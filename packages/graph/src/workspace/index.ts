@@ -1,5 +1,6 @@
 import { type Edge, Graph, Mutable, type Node, type Patch, Store, type UndoPatch } from '../core';
-import { type Diagnostic, type ValidateOptions, Validator } from '../features';
+import type { Diagnostic } from '../common';
+import { type ValidateOptions, Validator } from '../features';
 
 /**
  * 更新结果

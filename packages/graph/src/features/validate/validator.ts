@@ -1,4 +1,6 @@
-import type { Edge, Endpoint, Input, Node, Output, Patch } from '../../core';
+import type { Edge, Endpoint, Input, Node, Output } from '../../core/model'
+import type { Patch } from '../../core/state/patch'
+import type { Diagnostic } from '../../common'
 import {
   cardinalityRule,
   directionRule,
@@ -6,31 +8,9 @@ import {
   identityRule,
   ownershipRule,
   referenceRule,
-} from './rules';
+} from './rules'
 
-/**
- * 诊断级别
- */
-export type Level = 'error' | 'warning';
-
-/**
- * 诊断目标
- */
-export type Target =
-  | { type: 'graph' }
-  | { type: 'node'; id: string }
-  | { type: 'edge'; id: string }
-  | { type: 'endpoint'; id: string };
-
-/**
- * 诊断信息
- */
-export interface Diagnostic {
-  level: Level;
-  code: string;
-  message: string;
-  target: Target;
-}
+export type { Diagnostic }
 
 /**
  * 校验选项
