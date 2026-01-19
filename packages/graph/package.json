@@ -4,14 +4,10 @@
   "private": true,
   "type": "module",
   "main": "./src/index.ts",
-  "scripts": {
-    "typecheck": "tsc -p tsconfig.json",
-    "typecheck:examples": "tsc -p tsconfig.examples.json"
+  "dependencies": {
+    "nanoid": "^5.1.6"
   },
   "devDependencies": {
     "@opencode/tsconfig": "workspace:*"
-  },
-  "dependencies": {
-    "nanoid": "^5.1.6"
   }
 }
