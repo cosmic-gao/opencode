@@ -19,6 +19,10 @@ result.patch
 result.diagnostics
 ```
 
+## 完整示例
+
+请参考 [examples/usage.ts](./examples/usage.ts) 查看包含定义、编辑、校验、查询和序列化的完整演示。
+
 ## 不变式
 
 - `Graph` 是不可变快照：变更通过生成新快照表达。
@@ -46,8 +50,10 @@ export const noIsolatedNodeRule = (): Rule => ({
   name: 'no-isolated-node',
   evaluate(state) {
     const diagnostics = []
-    for (const node of state.listNodes()) {
-      if (state.incoming(node.id).length === 0 && state.outgoing(node.id).length === 0) {
+    for (const node of state.listNodes) {
+      const incoming = [...state.incoming(node.id)]
+      const outgoing = [...state.outgoing(node.id)]
+      if (incoming.length === 0 && outgoing.length === 0) {
         diagnostics.push({
           level: 'warning',
           code: 'no-isolated-node',
