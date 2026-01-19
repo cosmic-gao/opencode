@@ -1,8 +1,9 @@
 import type { Edge } from '../../model'
-import type { Store, Patch } from '../../state'
+import type { Patch } from '../../state/patch'
 import type { Diagnostic } from '../diagnostic'
 import type { Rule } from '../rule'
 import type { ValidateOptions } from '../options'
+import type { GraphState } from '../state'
 
 
 /**
@@ -30,7 +31,7 @@ export function cardinalityRule(options: ValidateOptions): Rule {
   }
 }
 
-function getIncomingEdges(state: Store, patch: Patch | undefined, inputId: string): Edge[] {
+function getIncomingEdges(state: GraphState, patch: Patch | undefined, inputId: string): Edge[] {
   if (!patch) return [...state.inputEdges(inputId)]
 
   const edges = new Map<string, Edge>()
@@ -63,7 +64,7 @@ function getIncomingEdges(state: Store, patch: Patch | undefined, inputId: strin
   return [...edges.values()]
 }
 
-function listInputs(state: Store, patch: Patch): readonly string[] {
+function listInputs(state: GraphState, patch: Patch): readonly string[] {
   const inputIdSet = new Set<string>()
 
   for (const edge of patch.edgeAdd ?? []) inputIdSet.add(edge.target.endpointId)

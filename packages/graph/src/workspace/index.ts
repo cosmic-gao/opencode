@@ -1,7 +1,9 @@
 import { Graph, type Edge, type Node } from '../model'
-import { IncrementalLookup } from '../lookup'
-import { type Diagnostic, type ValidateOptions, check } from '../validate'
-import { Store, type Patch, type UndoPatch } from '../state'
+import { IncrementalLookup } from '../lookup/incremental'
+import { type Diagnostic, type ValidateOptions } from '../validate'
+import { check } from '../validate/validator'
+import { Store } from '../state/store'
+import type { Patch, UndoPatch } from '../state/patch'
 
 
 /**

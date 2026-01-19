@@ -1,7 +1,8 @@
-import type { Store, Patch } from '../state'
+import type { Patch } from '../state/patch'
 import type { Diagnostic } from './diagnostic'
 import type { Rule } from './rule'
 import type { ValidateOptions } from './options'
+import type { GraphState } from './state'
 
 import {
   cardinalityRule,
@@ -22,7 +23,7 @@ export type { ValidateOptions }
  * @param options - 校验选项
  * @returns 诊断列表
  */
-export function check(state: Store, patch: Patch, options: ValidateOptions = {}): Diagnostic[] {
+export function check(state: GraphState, patch: Patch, options: ValidateOptions = {}): Diagnostic[] {
   const rules = options.rules ?? standardRules(options)
 
   const diagnostics: Diagnostic[] = []
@@ -42,7 +43,7 @@ export function check(state: Store, patch: Patch, options: ValidateOptions = {})
  * @param options - 校验选项
  * @returns 诊断列表
  */
-export function checkAll(state: Store, options: ValidateOptions = {}): Diagnostic[] {
+export function checkAll(state: GraphState, options: ValidateOptions = {}): Diagnostic[] {
   const rules = options.rules ?? standardRules(options)
   const diagnostics: Diagnostic[] = []
   for (const rule of rules) {
@@ -61,6 +62,7 @@ export function checkAll(state: Store, options: ValidateOptions = {}): Diagnosti
 export function defaultRules(options: ValidateOptions): Rule[] {
   return standardRules(options)
 }
+
 
 function standardRules(options: ValidateOptions): Rule[] {
   return [

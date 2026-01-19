@@ -1,5 +1,6 @@
-import type { Store, Patch } from '../state'
+import type { Patch } from '../state/patch'
 import type { Diagnostic } from './diagnostic'
+import type { GraphState } from './state'
 
 /**
  * 校验规则 (Rule)
@@ -17,5 +18,5 @@ export interface Rule {
    * @param patch - 可选的事实补丁（用于增量校验场景）
    * @returns 诊断信息列表
    */
-  evaluate: (state: Store, patch?: Patch) => Diagnostic[]
+  evaluate: (state: GraphState, patch?: Patch) => Diagnostic[]
 }

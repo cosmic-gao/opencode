@@ -1,6 +1,6 @@
-import type { Store } from '../../state'
 import type { Diagnostic } from '../diagnostic'
 import type { Rule } from '../rule'
+import type { GraphState } from '../state'
 
 /**
  * 规则：ID 唯一性
@@ -25,7 +25,7 @@ export function identityRule(): Rule {
   }
 }
 
-function checkNodeIds(state: Store, nodeIdSet: Set<string>): Diagnostic[] {
+function checkNodeIds(state: GraphState, nodeIdSet: Set<string>): Diagnostic[] {
   const diagnostics: Diagnostic[] = []
 
   for (const node of state.listNodes()) {
@@ -46,7 +46,7 @@ function checkNodeIds(state: Store, nodeIdSet: Set<string>): Diagnostic[] {
 }
 
 function checkEndpointIds(
-  state: Store,
+  state: GraphState,
   endpointIdSet: Set<string>,
 ): Diagnostic[] {
   const diagnostics: Diagnostic[] = []
@@ -86,7 +86,7 @@ function checkEndpointId(
   ]
 }
 
-function checkEdgeIds(state: Store, edgeIdSet: Set<string>): Diagnostic[] {
+function checkEdgeIds(state: GraphState, edgeIdSet: Set<string>): Diagnostic[] {
   const diagnostics: Diagnostic[] = []
 
   for (const edge of state.listEdges()) {

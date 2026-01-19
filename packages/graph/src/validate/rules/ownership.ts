@@ -1,7 +1,8 @@
 import type { Edge } from '../../model'
-import type { Store, Patch } from '../../state'
+import type { Patch } from '../../state/patch'
 import type { Diagnostic } from '../diagnostic'
 import type { Rule } from '../rule'
+import type { GraphState } from '../state'
 
 /**
  * 规则：端点归属
@@ -41,7 +42,7 @@ export function ownershipRule(): Rule {
   }
 }
 
-function listEdges(state: Store, patch: Patch): readonly Edge[] {
+function listEdges(state: GraphState, patch: Patch): readonly Edge[] {
   const edgeMap = new Map<string, Edge>()
 
   for (const edge of patch.edgeAdd ?? []) edgeMap.set(edge.id, edge)

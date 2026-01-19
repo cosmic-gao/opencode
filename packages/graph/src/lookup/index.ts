@@ -220,5 +220,4 @@ export class Lookup implements LookupView {
   }
 }
 
-export * from './incremental'
-export * from './view'
+export type { LookupView } from './view'

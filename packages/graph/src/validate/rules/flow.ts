@@ -1,8 +1,9 @@
 import type { Edge, Endpoint } from '../../model'
-import type { Store, Patch } from '../../state'
+import type { Patch } from '../../state/patch'
 import type { Diagnostic } from '../diagnostic'
 import type { Rule } from '../rule'
 import type { ValidateOptions } from '../options'
+import type { GraphState } from '../state'
 
 
 /**
@@ -40,7 +41,7 @@ export function flowRule(options: ValidateOptions): Rule {
   }
 }
 
-function resolveEndpoint(state: Store, patch: Patch | undefined, endpointId: string): Endpoint | undefined {
+function resolveEndpoint(state: GraphState, patch: Patch | undefined, endpointId: string): Endpoint | undefined {
   if (!patch) return state.getEndpoint(endpointId)
 
   // 1. Check patch for new/replaced nodes
@@ -71,7 +72,7 @@ function resolveEndpoint(state: Store, patch: Patch | undefined, endpointId: str
   return endpoint
 }
 
-function listEdges(state: Store, patch: Patch): readonly Edge[] {
+function listEdges(state: GraphState, patch: Patch): readonly Edge[] {
   const edgeMap = new Map<string, Edge>()
 
   // 1. Add edges from state connected to replaced nodes (potential flow changes)
