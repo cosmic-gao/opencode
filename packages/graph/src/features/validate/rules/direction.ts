@@ -1,59 +1,54 @@
-import type { Edge } from '../../../core/model'
-import type { Patch } from '../../../core/state/patch'
-import type { Diagnostic } from '../diagnostic'
-import type { Rule } from '../rule'
-import type { GraphState } from '../state'
+import { type Edge, type Patch } from '../../../core';
+import type { Diagnostic, GraphState, Rule } from '../validator';
 
 /**
- * 规则：连接方向
+ * 规则：方向性 (Direction)规则：连接方向
  * 确保边是从 Output 连接到 Input。
  */
 export function directionRule(): Rule {
   return {
     name: 'direction',
     evaluate(state, patch) {
-      const diagnostics: Diagnostic[] = []
+      const diagnostics: Diagnostic[] = [];
 
-      const edges = patch ? listEdges(state, patch) : state.listEdges
+      const edges = patch ? listEdges(state, patch) : state.listEdges;
       for (const edge of edges) {
-        const output = state.getOutput(edge.source.endpointId)
+        const output = state.getOutput(edge.source.endpointId);
         if (!output) {
           diagnostics.push({
             level: 'error',
             code: 'direction',
             message: `Edge from endpoint must be output: ${edge.source.endpointId}`,
             target: { type: 'edge', id: edge.id },
-          })
+          });
         }
 
-        const input = state.getInput(edge.target.endpointId)
+        const input = state.getInput(edge.target.endpointId);
         if (!input) {
           diagnostics.push({
             level: 'error',
             code: 'direction',
             message: `Edge to endpoint must be input: ${edge.target.endpointId}`,
             target: { type: 'edge', id: edge.id },
-          })
+          });
         }
       }
 
-      return diagnostics
+      return diagnostics;
     },
-  }
+  };
 }
 
 function listEdges(state: GraphState, patch: Patch): readonly Edge[] {
-  const edgeMap = new Map<string, Edge>()
+  const edgeMap = new Map<string, Edge>();
 
-  for (const edge of patch.edgeAdd ?? []) edgeMap.set(edge.id, edge)
-  for (const edge of patch.edgeReplace ?? []) edgeMap.set(edge.id, edge)
+  for (const edge of patch.edgeAdd ?? []) edgeMap.set(edge.id, edge);
+  for (const edge of patch.edgeReplace ?? []) edgeMap.set(edge.id, edge);
 
   for (const node of patch.nodeReplace ?? []) {
-    for (const edge of state.incoming(node.id)) edgeMap.set(edge.id, edge)
-    for (const edge of state.outgoing(node.id)) edgeMap.set(edge.id, edge)
+    for (const edge of state.incoming(node.id)) edgeMap.set(edge.id, edge);
+    for (const edge of state.outgoing(node.id)) edgeMap.set(edge.id, edge);
   }
 
-
-  return [...edgeMap.values()]
+  return [...edgeMap.values()];
 }
-

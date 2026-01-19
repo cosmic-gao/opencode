@@ -1,4 +1,4 @@
-import { createId } from '../../common'
+import { useId } from '../../common'
 import { type ContractValue, Contract } from './contract'
 
 /**
@@ -61,7 +61,7 @@ export class Endpoint {
    * @param options.metadata - 元数据
    */
   constructor(options: EndpointOptions) {
-    this.id = options.id ?? createId('ep')
+    this.id = options.id ?? useId('ep')
     this.name = options.name
     this.contract = options.contract instanceof Contract
       ? options.contract

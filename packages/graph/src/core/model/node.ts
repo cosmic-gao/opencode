@@ -1,4 +1,4 @@
-import { createId } from '../../common'
+import { useId } from '../../common'
 import type { EndpointValue } from './endpoint'
 import { Input } from './input'
 import { Output } from './output'
@@ -76,7 +76,7 @@ export class Node {
    * @param options.metadata - 元数据
    */
   constructor(options: NodeOptions) {
-    this.id = options.id ?? createId('node')
+    this.id = options.id ?? useId('node')
     this.type = options.type
     this.name = options.name
     // 使用 Object.freeze 确保数组不可变

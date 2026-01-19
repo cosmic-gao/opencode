@@ -1,4 +1,4 @@
-import { createId } from '../../common'
+import { useId } from '../../common'
 import { type ReferenceValue, Reference } from './reference'
 
 /**
@@ -60,7 +60,7 @@ export class Edge {
    * @param options.metadata - 元数据
    */
   constructor(options: EdgeOptions) {
-    this.id = options.id ?? createId('edge')
+    this.id = options.id ?? useId('edge')
     this.source = options.source instanceof Reference ? options.source : new Reference(options.source)
     this.target = options.target instanceof Reference ? options.target : new Reference(options.target)
     this.metadata = options.metadata

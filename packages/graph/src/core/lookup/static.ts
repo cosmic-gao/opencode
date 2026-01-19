@@ -1,0 +1,221 @@
+import type { Edge, Endpoint, GraphSpec, Input, Node, Output } from '../model'
+import type { Scope } from './scope'
+
+/**
+ * 查表对象 (Static)
+ *
+ * 为 Graph 提供基于 Map 的高性能索引，将 O(n) 的数组扫描转换为 O(1) 的哈希查找。
+ * 它是不可变的（Immutable），在构造时一次性计算所有索引，之后仅供查询。
+ *
+ * 主要索引：
+ * - ID 映射：Node/Edge/Endpoint ID -> 对象实例
+ * - 归属映射：Endpoint ID -> Node ID
+ * - 邻接表：Node/Endpoint -> 进出边列表
+ */
+export class Static implements Scope {
+  // --- 基础 ID 索引 ---
+  private readonly nodeById: Map<string, Node>
+  private readonly inputById: Map<string, Input>
+  private readonly outputById: Map<string, Output>
+  private readonly endpointById: Map<string, Endpoint>
+  private readonly edgeById: Map<string, Edge>
+
+  // --- 关系索引 ---
+  private readonly endpointOwners: Map<string, string>
+
+  // 辅助构建的中间 ID 列表，用于最终生成只读的 Edge 数组
+  private readonly inputEdgeIds: Map<string, string[]>
+  private readonly outputEdgeIds: Map<string, string[]>
+  private readonly nodeIncomingIds: Map<string, string[]>
+  private readonly nodeOutgoingIds: Map<string, string[]>
+
+  // --- 最终暴露的只读邻接表 ---
+  private readonly nodeEndpoints: Map<string, readonly Endpoint[]>
+  private readonly inputEdgeMap: Map<string, readonly Edge[]>
+  private readonly outputEdgeMap: Map<string, readonly Edge[]>
+  private readonly nodeIncoming: Map<string, readonly Edge[]>
+  private readonly nodeOutgoing: Map<string, readonly Edge[]>
+
+  /**
+   * 创建 Static 实例。
+   *
+   * 构造函数会遍历 Graph 的所有节点和边，构建完整的索引映射。
+   *
+   * @param graph - 图定义对象 (GraphSpec)
+   */
+  constructor(graph: GraphSpec) {
+    // 预初始化属性，避免 TS 报错（虽然在 helper 中初始化）
+    this.nodeById = new Map()
+    this.inputById = new Map()
+    this.outputById = new Map()
+    this.endpointById = new Map()
+    this.edgeById = new Map()
+    this.endpointOwners = new Map()
+    this.inputEdgeIds = new Map()
+    this.outputEdgeIds = new Map()
+    this.nodeIncomingIds = new Map()
+    this.nodeOutgoingIds = new Map()
+    this.nodeEndpoints = new Map()
+    this.inputEdgeMap = new Map()
+    this.outputEdgeMap = new Map()
+    this.nodeIncoming = new Map()
+    this.nodeOutgoing = new Map()
+
+
+    this.initFromDefinition(graph)
+  }
+
+  // --- 初始化辅助方法 ---
+
+  private initFromDefinition(graph: GraphSpec): void {
+    this.indexNodes(graph)
+    this.indexEdges(graph)
+    this.finalizeAllEdges()
+  }
+
+  private indexNodes(graph: GraphSpec): void {
+    for (const node of graph.nodes) {
+      this.nodeById.set(node.id, node)
+
+      const endpoints: Endpoint[] = []
+
+      for (const input of node.inputs) {
+        this.inputById.set(input.id, input)
+        this.endpointById.set(input.id, input)
+        this.endpointOwners.set(input.id, node.id)
+        endpoints.push(input)
+      }
+
+      for (const output of node.outputs) {
+        this.outputById.set(output.id, output)
+        this.endpointById.set(output.id, output)
+        this.endpointOwners.set(output.id, node.id)
+        endpoints.push(output)
+      }
+
+      this.nodeEndpoints.set(node.id, Object.freeze(endpoints))
+    }
+  }
+
+  private indexEdges(graph: GraphSpec): void {
+    for (const edge of graph.edges) {
+      this.edgeById.set(edge.id, edge)
+
+      this.ensureEdgeList(this.outputEdgeIds, edge.source.endpointId).push(edge.id)
+      this.ensureEdgeList(this.inputEdgeIds, edge.target.endpointId).push(edge.id)
+      this.ensureEdgeList(this.nodeOutgoingIds, edge.source.nodeId).push(edge.id)
+      this.ensureEdgeList(this.nodeIncomingIds, edge.target.nodeId).push(edge.id)
+    }
+  }
+
+  private finalizeAllEdges(): void {
+    this.finalizeEdges(this.inputEdgeIds, this.inputEdgeMap)
+    this.finalizeEdges(this.outputEdgeIds, this.outputEdgeMap)
+    this.finalizeEdges(this.nodeIncomingIds, this.nodeIncoming)
+    this.finalizeEdges(this.nodeOutgoingIds, this.nodeOutgoing)
+  }
+
+
+  private ensureEdgeList(map: Map<string, string[]>, key: string): string[] {
+    let list = map.get(key)
+    if (!list) {
+      list = []
+      map.set(key, list)
+    }
+    return list
+  }
+
+  // --- 查询接口实现 ---
+
+  hasNode(id: string): boolean {
+    return this.nodeById.has(id)
+  }
+
+  hasEdge(id: string): boolean {
+    return this.edgeById.has(id)
+  }
+
+  hasEndpoint(id: string): boolean {
+    return this.endpointById.has(id)
+  }
+
+  getNode(id: string): Node | undefined {
+    return this.nodeById.get(id)
+  }
+
+  getEdge(id: string): Edge | undefined {
+    return this.edgeById.get(id)
+  }
+
+  getEndpoint(id: string): Endpoint | undefined {
+    return this.endpointById.get(id)
+  }
+
+  getInput(id: string): Input | undefined {
+    return this.inputById.get(id)
+  }
+
+  getOutput(id: string): Output | undefined {
+    return this.outputById.get(id)
+  }
+
+  owner(endpointId: string): string | undefined {
+    return this.endpointOwners.get(endpointId)
+  }
+
+  endpoints(nodeId: string): readonly Endpoint[] {
+    return this.nodeEndpoints.get(nodeId) ?? []
+  }
+
+  inputIds(inputId: string): readonly string[] {
+    return this.inputEdgeIds.get(inputId) ?? []
+  }
+
+  outputIds(outputId: string): readonly string[] {
+    return this.outputEdgeIds.get(outputId) ?? []
+  }
+
+  inputCount(inputId: string): number {
+    return this.inputEdgeIds.get(inputId)?.length ?? 0
+  }
+
+  outputCount(outputId: string): number {
+    return this.outputEdgeIds.get(outputId)?.length ?? 0
+  }
+
+  inputEdges(inputId: string): IterableIterator<Edge> {
+    return (this.inputEdgeMap.get(inputId) ?? []).values()
+  }
+
+  outputEdges(outputId: string): IterableIterator<Edge> {
+    return (this.outputEdgeMap.get(outputId) ?? []).values()
+  }
+
+
+  incoming(nodeId: string): IterableIterator<Edge> {
+    return (this.nodeIncoming.get(nodeId) ?? []).values()
+  }
+
+  outgoing(nodeId: string): IterableIterator<Edge> {
+    return (this.nodeOutgoing.get(nodeId) ?? []).values()
+  }
+
+
+  private finalizeEdges(
+    source: Map<string, string[]>,
+    target: Map<string, readonly Edge[]>
+  ) {
+    for (const [key, edgeIds] of source) {
+      target.set(key, Object.freeze(this.getEdges(edgeIds)))
+    }
+  }
+
+  private getEdges(edgeIds: readonly string[]): Edge[] {
+    const edges: Edge[] = []
+    for (const edgeId of edgeIds) {
+      const edge = this.edgeById.get(edgeId)
+      if (edge) edges.push(edge)
+    }
+    return edges
+  }
+}

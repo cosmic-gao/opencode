@@ -6,7 +6,7 @@ import {
   Output,
   Contract,
   Workspace,
-  Lookup,
+  Static,
 } from '../src'
 
 /**
@@ -157,7 +157,7 @@ async function main() {
   console.log('\n5. 使用 Lookup 进行查询...')
 
   // 从当前图快照创建 Lookup 索引
-  const lookup = new Lookup(workspace.graph)
+  const lookup = new Static(workspace.graph)
 
   // 查询节点
   const node = lookup.getNode(processNode.id)

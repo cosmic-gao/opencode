@@ -1,10 +1,10 @@
 import type { Edge, Endpoint, Input, Node, Output } from '../model'
 import type { Store, Patch } from '../state'
-import type { LookupView } from './view'
+import type { Scope } from './scope'
 
 
 /**
- * 增量查表对象 (IncrementalLookup)
+ * 增量查表对象 (Mutable)
  *
  * 专为频繁变更设计的查表实现。支持通过 applyPatch 在现有索引基础上进行增量更新，
  * 避免了全量重建索引的开销。
@@ -17,7 +17,7 @@ import type { LookupView } from './view'
  * - **可变性**：内部状态可变，随补丁更新。
  * - **高性能**：增量更新复杂度通常远小于全量重建。
  */
-export class IncrementalLookup implements LookupView {
+export class Mutable implements Scope {
   private readonly nodeById: Map<string, Node> = new Map()
   private readonly inputById: Map<string, Input> = new Map()
   private readonly outputById: Map<string, Output> = new Map()

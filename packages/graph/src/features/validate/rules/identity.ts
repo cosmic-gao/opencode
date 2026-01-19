@@ -1,9 +1,7 @@
-import type { Diagnostic } from '../diagnostic'
-import type { Rule } from '../rule'
-import type { GraphState } from '../state'
+import type { Diagnostic, GraphState, Rule } from '../validator'
 
 /**
- * 规则：ID 唯一性
+ * 规则：标识符唯一性 (Identity)
  * 确保图中的节点、边和端点 ID 不重复。
  */
 export function identityRule(): Rule {

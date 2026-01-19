@@ -1,5 +1,5 @@
 import { Graph, type Edge, type Endpoint, type Input, type Node, type Output } from '../model'
-import { Applier } from './applier'
+import { Apply } from './apply'
 import type { Patch, UndoPatch } from './patch'
 import { Registry } from './registry'
 
@@ -31,7 +31,7 @@ export class Store {
   readonly metadata?: Record<string, unknown>
 
   private readonly registry: Registry
-  private readonly applier: Applier
+  private readonly applier: Apply
 
   /**
    * 创建图状态存储。
@@ -44,7 +44,7 @@ export class Store {
   constructor(options: StoreOptions) {
     this.metadata = options.metadata
     this.registry = new Registry(options.nodes, options.edges)
-    this.applier = new Applier(this.registry)
+    this.applier = new Apply(this.registry)
   }
 
   /**

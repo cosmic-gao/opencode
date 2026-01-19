@@ -1,9 +1,4 @@
-import type { Patch } from '../../core/state/patch'
-import type { Diagnostic } from './diagnostic'
-import type { Rule } from './rule'
-import type { ValidateOptions } from './options'
-import type { GraphState } from './state'
-
+import type { Edge, Endpoint, Input, Node, Output, Patch } from '../../core';
 import {
   cardinalityRule,
   directionRule,
@@ -11,77 +6,115 @@ import {
   identityRule,
   ownershipRule,
   referenceRule,
-} from './rules'
-
-export type { ValidateOptions }
+} from './rules';
 
 /**
- * 校验图对象的结构一致性。
- * 支持增量校验，仅检查受 Patch 影响的部分。
- *
- * @param state - 图状态（唯一事实源）
- * @param patch - 事实补丁
- * @param options - 校验选项，可配置启用的规则
- * @returns 诊断列表，包含发现的错误或警告
- *
- * @example
- * const diagnostics = check(store, patch);
- * if (diagnostics.length > 0) {
- *   console.error('Validation failed:', diagnostics);
- * }
+ * 诊断级别
  */
-export function check(state: GraphState, patch: Patch, options: ValidateOptions = {}): Diagnostic[] {
-  const rules = options.rules ?? standardRules(options)
+export type Level = 'error' | 'warning';
 
-  const diagnostics: Diagnostic[] = []
+/**
+ * 诊断目标
+ */
+export type Target =
+  | { type: 'graph' }
+  | { type: 'node'; id: string }
+  | { type: 'edge'; id: string }
+  | { type: 'endpoint'; id: string };
 
+/**
+ * 诊断信息
+ */
+export interface Diagnostic {
+  level: Level;
+  code: string;
+  message: string;
+  target: Target;
+}
 
-  for (const rule of rules) {
-    diagnostics.push(...rule.evaluate(state, patch))
+/**
+ * 校验选项
+ */
+export interface ValidateOptions {
+  allowMultiple?: boolean;
+  matchFlow?: boolean;
+  rules?: readonly Rule[];
+}
+
+/**
+ * 图只读状态
+ */
+export interface GraphState {
+  readonly metadata?: Record<string, unknown>;
+  getNode(nodeId: string): Node | undefined;
+  getEdge(edgeId: string): Edge | undefined;
+  hasNode(nodeId: string): boolean;
+  hasEdge(edgeId: string): boolean;
+  hasEndpoint(endpointId: string): boolean;
+  getEndpoint(endpointId: string): Endpoint | undefined;
+  getInput(endpointId: string): Input | undefined;
+  getOutput(endpointId: string): Output | undefined;
+  owner(endpointId: string): string | undefined;
+  endpoints(nodeId: string): readonly Endpoint[];
+  readonly listNodes: IterableIterator<Node>;
+  readonly listEdges: IterableIterator<Edge>;
+  outgoing(nodeId: string): IterableIterator<Edge>;
+  incoming(nodeId: string): IterableIterator<Edge>;
+  inputEdges(inputId: string): IterableIterator<Edge>;
+  outputEdges(outputId: string): IterableIterator<Edge>;
+}
+
+/**
+ * 校验规则
+ */
+export interface Rule {
+  name: string;
+  evaluate: (state: GraphState, patch?: Patch) => Diagnostic[];
+}
+
+/**
+ * 校验器
+ */
+export class Validator {
+  /**
+   * 增量校验
+   */
+  static check(state: GraphState, patch: Patch, options: ValidateOptions = {}): Diagnostic[] {
+    const rules = options.rules ?? Validator.standardRules(options);
+    const diagnostics: Diagnostic[] = [];
+    for (const rule of rules) {
+      diagnostics.push(...rule.evaluate(state, patch));
+    }
+    return diagnostics;
   }
 
-  return diagnostics
-}
-
-/**
- * 全量校验。
- * 检查整个图的所有规则。
- *
- * @param state - 图状态（唯一事实源）
- * @param options - 校验选项
- * @returns 诊断列表
- *
- * @example
- * const diagnostics = checkAll(store);
- */
-export function checkAll(state: GraphState, options: ValidateOptions = {}): Diagnostic[] {
-  const rules = options.rules ?? standardRules(options)
-  const diagnostics: Diagnostic[] = []
-  for (const rule of rules) {
-
-    diagnostics.push(...rule.evaluate(state))
+  /**
+   * 全量校验
+   */
+  static checkAll(state: GraphState, options: ValidateOptions = {}): Diagnostic[] {
+    const rules = options.rules ?? Validator.standardRules(options);
+    const diagnostics: Diagnostic[] = [];
+    for (const rule of rules) {
+      diagnostics.push(...rule.evaluate(state));
+    }
+    return diagnostics;
   }
-  return diagnostics
-}
 
-/**
- * 获取默认的校验规则集。
- *
- * @param options - 校验选项
- * @returns 规则列表
- */
-export function defaultRules(options: ValidateOptions): Rule[] {
-  return standardRules(options)
-}
+  /**
+   * 获取默认规则
+   */
+  static defaultRules(options: ValidateOptions): Rule[] {
+    return Validator.standardRules(options);
+  }
 
-
-function standardRules(options: ValidateOptions): Rule[] {
-  return [
-    identityRule(),
-    referenceRule(),
-    directionRule(),
-    ownershipRule(),
-    cardinalityRule(options),
-    flowRule(options),
-  ]
+  private static standardRules(options: ValidateOptions): Rule[] {
+    return [
+      identityRule(),
+      referenceRule(),
+      directionRule(),
+      ownershipRule(),
+      cardinalityRule(options),
+      flowRule(options),
+    ];
+  }
 }

@@ -3,7 +3,7 @@ import type { Patch, UndoPatch } from './patch'
 import type { Registry } from './registry'
 
 /**
- * 补丁应用器 (Applier)
+ * 补丁应用器 (Apply)
  *
  * 负责将 Patch 应用到 Registry 中，并生成对应的 UndoPatch。
  * 它是 Store.apply 方法的具体实现者。
@@ -13,7 +13,7 @@ import type { Registry } from './registry'
  * 2. 生成回滚操作 (UndoPatch)。
  * 3. 执行变更（更新 Registry）。
  */
-export class Applier {
+export class Apply {
   constructor(private readonly registry: Registry) {}
 
   /**
