@@ -18,4 +18,5 @@ export interface GridProps extends GridOptions {
 export interface GridEmits {
   (e: "update:modelValue", items: GridItemProps[]): void;
   (e: "dropped", item: DragItemOptions<unknown>): void;
+  (e: "removed", items: GridItemOptions[]): void;
 }

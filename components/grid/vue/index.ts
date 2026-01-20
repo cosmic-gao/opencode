@@ -6,6 +6,5 @@ export * from './grid-item';
 export * from './grid.const';
 export * from './grid.context';
 export * from './grid.type';
-
-export { createGrid, createId, GridEngine, GRID_ITEM_ATTRS } from '../core';
-export type { DragItemOptions, GridEngineOptions, GridItemOptions, GridOptions } from '../core';
+export * from './use-grid';
+export * from './use-grid-item';

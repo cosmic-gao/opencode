@@ -1,7 +1,7 @@
 import { createApp, h, ref } from "vue";
 import { Grid, GridDragPortal } from "../vue";
 import type { GridItemProps } from "../vue";
-import type { DragItemOptions } from "../vue";
+import type { DragItemOptions, GridItemOptions } from "../core";
 
 const app = {
   setup() {
@@ -30,6 +30,13 @@ const app = {
     const handleDropped = (node: DragItemOptions<unknown>) => {
       const data = node.data as { source?: string; type?: string } | undefined;
       addLog(`✅ Dropped: ${data?.type ?? 'unknown'} from ${data?.source ?? 'unknown'}`);
+    };
+
+    const handleRemoved = (nodes: GridItemOptions[]) => {
+      nodes.forEach(node => {
+        const data = node.data as { source?: string; type?: string } | undefined;
+        addLog(`🗑️ Removed: ${data?.type ?? node.id ?? 'unknown'}`);
+      });
     };
 
     const handleModelUpdate = (value: GridItemProps[]) => {
@@ -86,7 +93,8 @@ const app = {
             modelValue: items.value,
             options: { float: true },
             "onUpdate:modelValue": handleModelUpdate,
-            onDropped: handleDropped
+            onDropped: handleDropped,
+            onRemoved: handleRemoved
           })
         ])
       ]);

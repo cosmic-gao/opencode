@@ -35,10 +35,10 @@ export function provideGridModel(model: {
  * @returns 网格实例的响应式引用
  * @throws 若未找到 Grid 上下文则抛出错误
  */
-export function useGrid(): ShallowRef<GridEngine | null> {
+export function useGridContext(): ShallowRef<GridEngine | null> {
   const grid = inject(gridKey, null);
   if (!grid) {
-    throw new Error("Grid context is not provided. useGrid() must be called within a Grid component.");
+    throw new Error("Grid context is not provided. useGridContext() must be called within a Grid component.");
   }
   return grid;
 }
