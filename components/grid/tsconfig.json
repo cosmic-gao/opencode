@@ -1,0 +1,10 @@
+{
+  "extends": "@opencode/tsconfig/vue2.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": ["**/*.ts", "**/*.d.ts", "**/*.vue"]
+}

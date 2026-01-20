@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "name": "@opencode/tsconfig/vue2",
+  "extends": "./vite.json",
+  "compilerOptions": {
+    "jsx": "preserve",
+    "experimentalDecorators": true,
+    "moduleResolution": "bundler"
+  }
+}

@@ -6,7 +6,6 @@ import {
   Input, 
   Output, 
   Contract,
-  Reference
 } from './src';
 
 // 1. 定义契约 (Contracts)

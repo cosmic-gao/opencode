@@ -3,3 +3,4 @@ packages:
   - 'agents/*'
   - 'configs/*'
   - 'packages/*'
+  - 'components/*'
