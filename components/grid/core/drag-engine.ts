@@ -8,7 +8,10 @@ import {
 } from "gridstack";
 import { type DragItemOptions, GridEngine, GRID_ITEM_ATTRS } from "./grid-engine";
 import { GridStack } from "./grid-stack"
+import { leaveGrid, readNode, removeDrag, triggerChange, updateHeight } from "./gridstack-adapter";
 import { GridUtils } from "./utils";
+
+const getDropKeys = () => [...Object.keys(GRID_ITEM_ATTRS), "children", "data"] as const;
 
 export class DragEngine {
   private readonly grid: GridEngine;
@@ -35,7 +38,7 @@ export class DragEngine {
    */
   public setupDragIn<T>(element: HTMLElement, item: DragItemOptions<T>, helper?: 'clone' | ((el: HTMLElement) => HTMLElement)) {
     const ddElement = DDElement.init(element);
-    (element as GridItemHTMLElement).gridstackNode = item;
+    (element as GridItemHTMLElement).gridstackNode = item as unknown as GridStackNode;
 
     ddElement.setupDraggable({
       ...this.grid.options.dragInOptions,
@@ -71,7 +74,7 @@ export class DragEngine {
   }
 
   private canAccept(el: GridItemHTMLElement, gridStack: GridStack): boolean {
-    const node: GridStackNode = el.gridstackNode || gridStack._readAttr(el, false);
+    const node = readNode(gridStack, el);
     
     // set accept drop to true on ourself (which we ignore) so we don't get "can't drop" icon in HTML5 mode while moving
     if (node && node.grid === gridStack) return true;
@@ -113,7 +116,7 @@ export class DragEngine {
      * so skip this one if we're not the active grid really..
      */
     if (!node?.grid || node?.grid !== that) {
-      that._leave(el, helper);
+      leaveGrid(that, el, helper);
 
       if (that._isTemp) {
         that.removeAsSubGrid(node);
@@ -131,14 +134,15 @@ export class DragEngine {
 
     const wasAdded = !!that.placeholder.parentElement;
     that.placeholder.remove();
-    delete that.placeholder.gridstackNode;
+    (that.placeholder as unknown as { gridstackNode?: unknown }).gridstackNode = undefined;
 
     this.handleAnimation(wasAdded, that);
 
-    const origNode = el._gridstackNodeOrig!;
-    delete el._gridstackNodeOrig;
+    const original = (el as unknown as { _gridstackNodeOrig?: GridStackNode })._gridstackNodeOrig;
+    if (!original) return false;
+    delete (el as unknown as { _gridstackNodeOrig?: GridStackNode })._gridstackNodeOrig;
 
-    this.handleOriginalNode(wasAdded, origNode, that);
+    this.handleOriginalNode(wasAdded, original, that);
 
     if (!node) return false;
 
@@ -159,22 +163,26 @@ export class DragEngine {
       el.remove(); 
     }
 
-    that._removeDD(finalEl);
+    removeDrag(that, finalEl);
     if (!wasAdded) return false;
 
-    Utils.copyPos(node, that._readAttr(that.placeholder));
+    const placeholderNode = readNode(that, that.placeholder);
+    if (placeholderNode) Utils.copyPos(node, placeholderNode);
     Utils.removePositioningStyles(finalEl);
     that.engine.removeNode(node);
 
-    that._updateContainerHeight();
-    that._triggerChangeEvent();
+    updateHeight(that);
+    triggerChange(that);
     that.engine.endUpdate();
 
     if (that._gsEventHandler['dropped']) {
       that._gsEventHandler['dropped'](
         { ...event, type: 'dropped' },
-        origNode,
-        GridUtils.pick(node, Object.keys(GRID_ITEM_ATTRS) as unknown as (keyof GridStackWidget)[])
+        original,
+        (GridUtils.pick(
+          node as unknown as Record<string, unknown>,
+          getDropKeys() as unknown as (keyof GridStackWidget)[],
+        ) as unknown as GridStackNode)
       );
     }
     return false;

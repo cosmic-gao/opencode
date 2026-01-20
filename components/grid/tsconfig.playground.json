@@ -1,0 +1,9 @@
+{
+  "extends": "@opencode/tsconfig/vue3.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.playground.tsbuildinfo",
+    "composite": true,
+    "noEmit": true
+  },
+  "include": ["playground/**/*.ts", "core/**/*.ts", "vue/**/*.ts", "**/*.d.ts"]
+}

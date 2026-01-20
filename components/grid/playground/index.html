@@ -4,10 +4,89 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>@opencode/grid playground</title>
+    <style>
+      html,
+      body {
+        height: 100%;
+      }
+
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji",
+          "Segoe UI Emoji";
+        background: #f7f7fb;
+      }
+
+      .page {
+        height: 100%;
+        display: grid;
+        grid-template-columns: 320px 1fr;
+        gap: 16px;
+        padding: 16px;
+        box-sizing: border-box;
+      }
+
+      .panel {
+        background: #fff;
+        border: 1px solid #e6e6f2;
+        border-radius: 10px;
+        padding: 12px;
+        box-sizing: border-box;
+      }
+
+      .title {
+        font-size: 14px;
+        font-weight: 600;
+        margin: 0 0 10px;
+      }
+
+      .sourceList {
+        display: grid;
+        gap: 10px;
+      }
+
+      .sourceCard {
+        height: 84px;
+        border-radius: 10px;
+        border: 1px dashed #6b74ff;
+        background: #f1f3ff;
+        display: grid;
+        place-items: center;
+        color: #3b43c4;
+        user-select: none;
+      }
+
+      .trash {
+        height: 84px;
+        border-radius: 10px;
+        border: 1px dashed #ff6b6b;
+        background: #fff1f1;
+        display: grid;
+        place-items: center;
+        color: #cc3b3b;
+      }
+
+      .gridShell {
+        height: calc(100vh - 32px);
+        overflow: auto;
+      }
+
+      .output {
+        margin-top: 12px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 12px;
+        background: #0b1020;
+        color: #d6dcff;
+        border-radius: 10px;
+        padding: 12px;
+        white-space: pre-wrap;
+        overflow: auto;
+        max-height: 40vh;
+      }
+    </style>
   </head>
   <body>
     <div id="app"></div>
     <script type="module" src="/main.ts"></script>
   </body>
 </html>
-

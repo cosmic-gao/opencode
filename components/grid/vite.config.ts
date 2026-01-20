@@ -3,24 +3,21 @@ import { defineConfig } from "vite";
 
 export default defineConfig(({ command }) => {
   const alias = {
-    "@": path.resolve(__dirname, "./"),
-    "gridstack/dist/gridstack.min.css": "gridstack/dist/gridstack.min.css"
+    "@": path.resolve(__dirname, ".")
   };
+
+  const resolve = { alias };
 
   if (command === "serve") {
     return {
       root: "./playground",
       base: "./",
-      resolve: {
-        alias
-      }
+      resolve
     };
   }
 
   return {
-    resolve: {
-      alias
-    },
+    resolve,
     build: {
       emptyOutDir: true,
       outDir: "dist",

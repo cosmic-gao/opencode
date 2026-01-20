@@ -15,9 +15,11 @@ import { microtask } from './microtask';
 import { DragEngine } from './drag-engine';
 import { GridStack } from './grid-stack';
 import { GridUtils } from './utils';
+import { denormalizeLayout, normalizeLayout } from './layout';
 
 export interface GridItemOptions extends Omit<GridStackWidget, 'content'> {
   children?: GridItemOptions[];
+  data?: unknown;
 }
 
 export interface DragItemOptions<T> extends GridItemOptions {
@@ -44,6 +46,7 @@ export interface GridEngineOptions extends Omit<GridStackOptions, 'children'> {
   id?: string;
   dragInOptions?: DDDragOpt;
   dragIn?: string | HTMLElement[];
+  subGridOptions?: Omit<GridStackOptions, 'children'>;
 }
 
 export interface GridEngineSpec {
@@ -58,6 +61,10 @@ export interface GridEvent {
   added: { event: Event; nodes: GridItemOptions[] };
   change: GridItemOptions[];
   removed: GridItemOptions[];
+  dragstart: { event: Event; el: unknown };
+  dragstop: { event: Event; el: unknown };
+  resizestart: { event: Event; el: unknown };
+  resizestop: { event: Event; el: unknown };
   [key: string]: unknown;
 }
 
@@ -79,6 +86,8 @@ export const GRID_ITEM_ATTRS = {
   autoPosition: 'auto-position',
 } as const;
 
+const DROP_KEYS = [...Object.keys(GRID_ITEM_ATTRS), 'children', 'data'] as const;
+
 const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
   typeof window !== 'undefined' ? window.navigator.userAgent : '',
 );
@@ -89,7 +98,8 @@ const dragDropOptions: GridEngineOptions = {
     autoHide: !isMobile,
     handles: 'se',
   },
-  acceptWidgets: '.grid-drag-portal',
+  acceptWidgets: (el: GridItemHTMLElement) =>
+    el.matches('.grid-drag-portal') || el.matches('.grid-stack-item'),
   dragIn: '.grid-drag-portal', // class that can be dragged from outside
   dragInOptions: { scroll: true, appendTo: 'body', helper: 'clone' },
   removable: '.grid-stack-library-trash', // drag-out delete class
@@ -248,13 +258,13 @@ export class GridEngine implements GridEngineSpec {
 
   // Compatibility method for old API
   public getItems(): GridItemOptions[] {
-    return this.gridstack.save(false) as GridItemOptions[];
+    return normalizeLayout(this.gridstack.save(false) as unknown as GridStackWidget[]);
   }
 
   public sync(items: GridItemOptions[]) {
-    // Basic sync implementation using load or batch update
-    // For now, load is simplest if we assume full replacement
-    this.gridstack.load(items);
+    this.gridstack.load(
+      denormalizeLayout(items, this.options.subGridOptions) as unknown as GridStackWidget[],
+    );
   }
 
   public make(el: HTMLElement) {
@@ -272,25 +282,34 @@ export class GridEngine implements GridEngineSpec {
 
   private setupEvents() {
     this.gridstack.on('added', (event: Event, nodes: GridStackNode[]) => {
-      this.eventBus.emit('added', { event, nodes });
+      this.eventBus.emit('added', {
+        event,
+        nodes: normalizeLayout(nodes as unknown as GridStackWidget[]),
+      });
       this.eventBus.emit('change', this.getItems()); // Emit change for compatibility
     });
     this.gridstack.on(
       'dropped',
       (event: Event, _: GridStackNode, node: GridStackNode) => {
-        this.eventBus.emit('dropped', { event, node });
+        this.eventBus.emit('dropped', {
+          event,
+          node: GridUtils.pick(
+            node as unknown as Record<string, unknown>,
+            DROP_KEYS as unknown as (keyof GridStackNode)[],
+          ) as unknown as DragItemOptions<unknown>,
+        });
       },
     );
     this.gridstack.on('change', () => {
       this.eventBus.emit('change', this.getItems());
     });
-    this.gridstack.on('removed', (_, nodes: GridStackNode[]) => {
-      this.eventBus.emit('removed', nodes as unknown as GridItemOptions[]);
+    this.gridstack.on('removed', (event: Event, nodes: GridStackNode[]) => {
+      this.eventBus.emit('removed', normalizeLayout(nodes as unknown as GridStackWidget[]));
       this.eventBus.emit('change', this.getItems());
     });
 
     // Forward other events
-    const events = ['dragstart', 'dragstop', 'resizestart', 'resizestop', 'dropped'];
+    const events = ['dragstart', 'dragstop', 'resizestart', 'resizestop'];
     events.forEach((evt) => {
       this.gridstack.on(evt, (event: Event, el: any) => {
         this.eventBus.emit(evt, { event, el });
@@ -307,7 +326,10 @@ export class GridEngine implements GridEngineSpec {
    */
   private createItem(el: HTMLElement, options: GridItemOptions, id?: string): GridItem {
     const finalId = id ?? createId();
-    const finalOptions = { id: finalId, el, ...GridUtils.trimmed(options) } as GridStackWidget;
+    const finalOptions = denormalizeLayout(
+      [{ id: finalId, el, ...GridUtils.trimmed(options) } as unknown as GridItemOptions],
+      this.options.subGridOptions,
+    )[0] as GridStackWidget;
     return { ...finalOptions, grid: this } as unknown as GridItem;
   }
 

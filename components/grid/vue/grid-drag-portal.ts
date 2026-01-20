@@ -6,11 +6,10 @@ import {
   type ShallowRef,
   shallowRef,
   watch,
-  onMounted,
   onBeforeUnmount
 } from "vue-demi";
 import type { DragItemOptions, GridEngine } from "../core";
-import { GridFactory } from "../core";
+import { GridFactory } from "../core/internal";
 import type { GridDragPortalProps } from "./grid.type";
 
 export const GridDragPortal = defineComponent({
@@ -57,10 +56,6 @@ export const GridDragPortal = defineComponent({
       },
       { immediate: true }
     );
-
-    onMounted(() => {
-      void setupDrag(props.target);
-    });
 
     onBeforeUnmount(() => {
       if (grid.value && el.value) grid.value.driver.destroyDragIn(el.value);

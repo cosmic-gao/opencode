@@ -1,0 +1,8 @@
+{
+  "extends": "@opencode/tsconfig/esm.json",
+  "compilerOptions": {
+    "lib": ["esnext", "dom", "dom.iterable"]
+  },
+  "include": ["core/**/*.ts", "vue/**/*.ts", "**/*.d.ts"],
+  "exclude": ["node_modules", "dist", "playground"]
+}

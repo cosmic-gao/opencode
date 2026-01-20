@@ -1,13 +1,8 @@
 {
-  "extends": "@opencode/tsconfig/vue2.json",
-  "compilerOptions": {
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["./*"],
-      "vue": ["node_modules/vue"],
-      "vue-demi": ["node_modules/vue-demi"]
-    },
-    "types": []
-  },
-  "include": ["**/*.ts", "**/*.d.ts", "**/*.vue"]
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.lib.json" },
+    { "path": "./tsconfig.playground.json" },
+    { "path": "./tsconfig.node.json" }
+  ]
 }
