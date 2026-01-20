@@ -78,7 +78,7 @@ export class Graph<T = Record<string, unknown>> {
    * @returns 新的图实例
    */
   patch(patch: Patch): Graph<T> {
-    return produce(this, (draft) => {
+    return produce(this, (draft: Graph<T>) => {
       const nodes = draft.nodes as Map<string, Node>
       const edges = draft.edges as Map<string, Edge>
 
@@ -124,7 +124,7 @@ export class Graph<T = Record<string, unknown>> {
    * const subgraph = graph.prune(node => node.type === 'task');
    */
   prune(predicate: (node: Node) => boolean): Graph<T> {
-    return produce(this, (draft) => {
+    return produce(this, (draft: Graph<T>) => {
       const nodes = draft.nodes as Map<string, Node>
       const edges = draft.edges as Map<string, Edge>
       
@@ -157,7 +157,7 @@ export class Graph<T = Record<string, unknown>> {
    * const merged = mainGraph.merge(subgraph);
    */
   merge(other: Graph<T>): Graph<T> {
-    return produce(this, (draft) => {
+    return produce(this, (draft: Graph<T>) => {
       const nodes = draft.nodes as Map<string, Node>
       const edges = draft.edges as Map<string, Edge>
 
