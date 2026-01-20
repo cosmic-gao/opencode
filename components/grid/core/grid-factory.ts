@@ -26,8 +26,13 @@ export class GridFactory implements GridFactorySpec {
     return GridFactory.instance
   }
 
-  private waiting: Map<string, Promise<GridEngine>> = new Map()
-  private resolvers: Map<string, (engine: GridEngine) => void> = new Map();
+  private pending: Map<string, Set<{
+    resolve: (engine: GridEngine) => void;
+    reject: (error: Error) => void;
+    timeoutId?: ReturnType<typeof setTimeout>;
+    signal?: AbortSignal;
+    abortListener?: () => void;
+  }>> = new Map();
 
   public options: GridFactoryOptions;
   public grids: Map<string, GridEngine> = new Map();
@@ -53,8 +58,17 @@ export class GridFactory implements GridFactorySpec {
     const grid = new GridEngine(el, options)
     this.grids.set(grid.id, grid)
 
-    const resolver = this.resolvers.get(grid.id)
-    if (resolver) resolver(grid)
+    const waiters = this.pending.get(grid.id);
+    if (waiters) {
+      waiters.forEach((waiter) => {
+        if (waiter.timeoutId) clearTimeout(waiter.timeoutId);
+        if (waiter.signal && waiter.abortListener) {
+          waiter.signal.removeEventListener('abort', waiter.abortListener);
+        }
+        waiter.resolve(grid);
+      });
+      this.pending.delete(grid.id);
+    }
 
     return grid
   }
@@ -74,19 +88,24 @@ export class GridFactory implements GridFactorySpec {
    * 若网格已存在立即返回，否则等待直到对应 id 的网格被创建。
    * 
    * 约束：
-   * - 必须确保目标网格最终会被创建，否则 Promise 永不 resolve
-   * - 不会自动超时，调用方需自行处理超时逻辑
+   * - 默认不会自动超时（不传 timeoutMs 时为无限等待）
+   * - 可通过 AbortSignal 取消等待
    * 
    * @param els 网格 id（字符串）或已挂载的网格元素
+   * @param options 可选项：超时与取消
    * @returns Promise<GridEngine> 目标网格实例
    * @throws 若无法解析 ID 则抛出错误
+   * @throws 若超时或被取消则抛出错误
    * 
    * @example
    * // DragPortal 等待目标网格
-   * const grid = await factory.waitForGrid('main-grid')
+   * const grid = await factory.waitForGrid('main-grid', { timeoutMs: 3000 })
    * grid.driver.setupDragIn(el, options)
    */
-  public async waitForGrid(els: string | HTMLElement): Promise<GridEngine> {
+  public async waitForGrid(
+    els: string | HTMLElement,
+    options: { timeoutMs?: number; signal?: AbortSignal } = {},
+  ): Promise<GridEngine> {
     const id = this.resolveId(els);
     if (!id) {
       throw new Error('GridFactory.waitForGrid: Unable to resolve grid ID from element');
@@ -95,24 +114,70 @@ export class GridFactory implements GridFactorySpec {
     const grid = this.grids.get(id);
     if (grid) return grid;
 
-    if (this.waiting.has(id)) return this.waiting.get(id)!;
+    const { timeoutMs, signal } = options;
+    if (signal?.aborted) {
+      const error = new Error('GridFactory.waitForGrid: Aborted');
+      error.name = 'AbortError';
+      throw error;
+    }
 
-    const promise = new Promise<GridEngine>((resolve) => this.resolvers.set(id, (engine) => {
-      resolve(engine)
+    return new Promise<GridEngine>((resolve, reject) => {
+      const waiter = { resolve, reject, signal } as {
+        resolve: (engine: GridEngine) => void;
+        reject: (error: Error) => void;
+        timeoutId?: ReturnType<typeof setTimeout>;
+        signal?: AbortSignal;
+        abortListener?: () => void;
+      };
 
-      this.resolvers.delete(id)
-      this.waiting.delete(id)
-    }))
+      const waiters = this.pending.get(id) ?? new Set();
+      waiters.add(waiter);
+      this.pending.set(id, waiters);
 
-    this.waiting.set(id, promise)
-    return promise
+      if (typeof timeoutMs === 'number' && timeoutMs > 0) {
+        waiter.timeoutId = setTimeout(() => {
+          waiters.delete(waiter);
+          if (waiters.size === 0) this.pending.delete(id);
+          if (waiter.signal && waiter.abortListener) {
+            waiter.signal.removeEventListener('abort', waiter.abortListener);
+          }
+          const error = new Error(`GridFactory.waitForGrid: Timeout after ${timeoutMs}ms`);
+          error.name = 'TimeoutError';
+          reject(error);
+        }, timeoutMs);
+      }
+
+      if (signal) {
+        const abortListener = () => {
+          if (waiter.timeoutId) clearTimeout(waiter.timeoutId);
+          waiters.delete(waiter);
+          if (waiters.size === 0) this.pending.delete(id);
+          const error = new Error('GridFactory.waitForGrid: Aborted');
+          error.name = 'AbortError';
+          reject(error);
+        };
+        waiter.abortListener = abortListener;
+        signal.addEventListener('abort', abortListener, { once: true });
+      }
+    });
   }
 
   public destroy() {
     this.grids.forEach(grid => grid.destroy());
     this.grids.clear()
-    this.waiting.clear()
-    this.resolvers.clear()
+
+    this.pending.forEach((waiters) => {
+      waiters.forEach((waiter) => {
+        if (waiter.timeoutId) clearTimeout(waiter.timeoutId);
+        if (waiter.signal && waiter.abortListener) {
+          waiter.signal.removeEventListener('abort', waiter.abortListener);
+        }
+        const error = new Error('GridFactory.destroy: GridFactory has been destroyed');
+        error.name = 'DestroyedError';
+        waiter.reject(error);
+      });
+    });
+    this.pending.clear()
   }
 
   private initialize() {

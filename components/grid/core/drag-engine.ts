@@ -7,10 +7,10 @@ import {
 import { type DragItemOptions, GridEngine } from "./grid-engine";
 import { GridStack } from "./grid-stack";
 
-export class DragEngine {
-  private readonly grid: GridEngine;
+export class DragEngine<T = unknown> {
+  private readonly grid: GridEngine<T>;
 
-  public constructor(grid: GridEngine) {
+  public constructor(grid: GridEngine<T>) {
     this.grid = grid;
   }
 
@@ -32,7 +32,7 @@ export class DragEngine {
    * @param item 拖拽项配置（尺寸、数据等）
    * @param helper 拖拽辅助模式（'clone' 或自定义函数）
    */
-  public setupDragIn<T>(element: HTMLElement, item: DragItemOptions<T>, helper?: 'clone' | ((el: HTMLElement) => HTMLElement)) {
+  public setupDragIn(element: HTMLElement, item: DragItemOptions<T>, helper?: 'clone' | ((el: HTMLElement) => HTMLElement)) {
     const ddElement = DDElement.init(element);
     (element as GridItemHTMLElement).gridstackNode = item as unknown as GridStackNode;
 

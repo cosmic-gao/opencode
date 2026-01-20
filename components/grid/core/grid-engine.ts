@@ -14,32 +14,23 @@ import { createId } from './create-id';
 import { microtask } from './microtask';
 import { DragEngine } from './drag-engine';
 import { GridStack } from './grid-stack';
-import { GridUtils } from './utils';
-import { parse, serialize } from './layout';
+import { fromLayout, GridUtils, parse, serialize, toLayout, type LayoutItem } from './utils';
 
-export interface GridItemOptions extends Omit<GridStackWidget, 'content'> {
-  children?: GridItemOptions[];
-  data?: unknown;
-}
-
-export interface DragItemOptions<T> extends GridItemOptions {
-  /**
-   * Optional payload data associated with the item when dragging it
-   * from an external source into the grid.
-   *
-   * This can be any custom information you want to attach, such as:
-   * - item id
-   * - type or category
-   * - metadata for rendering
-   *
-   * The generic type `T` ensures type safety for the attached data.
-   */
+export interface GridItemOptions<T = unknown> extends Omit<GridStackWidget, 'content'> {
+  children?: GridItemOptions<T>[];
   data?: T;
 }
 
-export interface GridItem extends GridItemOptions {
+/**
+ * 用于外部拖入场景的网格项配置（可携带强类型 data）。
+ *
+ * @typeParam T data 的类型
+ */
+export interface DragItemOptions<T = unknown> extends GridItemOptions<T> {}
+
+export interface GridItem<T = unknown> extends GridItemOptions<T> {
   el: HTMLElement;
-  grid: GridEngine;
+  grid: GridEngine<T>;
 }
 
 export interface GridEngineOptions extends Omit<GridStackOptions, 'children'> {
@@ -49,23 +40,22 @@ export interface GridEngineOptions extends Omit<GridStackOptions, 'children'> {
   subGridOptions?: Omit<GridStackOptions, 'children'>;
 }
 
-export interface GridEngineSpec {
+export interface GridEngineSpec<T = unknown> {
   readonly id: string;
   el: HTMLElement;
   options: GridEngineOptions;
-  driver: DragEngine;
+  driver: DragEngine<T>;
 }
 
-export interface GridEvent {
-  dropped: { event: Event; node: DragItemOptions<unknown> };
-  added: { event: Event; nodes: GridItemOptions[] };
-  change: GridItemOptions[];
-  removed: GridItemOptions[];
-  dragstart: { event: Event; el: unknown };
-  dragstop: { event: Event; el: unknown };
-  resizestart: { event: Event; el: unknown };
-  resizestop: { event: Event; el: unknown };
-  [key: string]: unknown;
+export interface GridEvent<T = unknown> {
+  dropped: { event: Event; node: DragItemOptions<T> };
+  added: { event: Event; nodes: GridItemOptions<T>[] };
+  change: GridItemOptions<T>[];
+  removed: GridItemOptions<T>[];
+  dragstart: { event: Event; el: HTMLElement | GridItemHTMLElement };
+  dragstop: { event: Event; el: HTMLElement | GridItemHTMLElement };
+  resizestart: { event: Event; el: HTMLElement | GridItemHTMLElement };
+  resizestop: { event: Event; el: HTMLElement | GridItemHTMLElement };
 }
 
 export const GRID_ITEM_ATTRS = {
@@ -113,7 +103,7 @@ const displayOptions: GridEngineOptions = {
   sizeToContent: true,
 };
 
-export class GridEngine implements GridEngineSpec {
+export class GridEngine<T = unknown> implements GridEngineSpec<T> {
   private static readonly GRID_ENGINE_OPTIONS: GridEngineOptions = {
     ...displayOptions,
     ...dragDropOptions,
@@ -124,12 +114,12 @@ export class GridEngine implements GridEngineSpec {
 
   public readonly id: string;
   public readonly el: HTMLElement;
-  public readonly driver: DragEngine;
+  public readonly driver: DragEngine<T>;
 
   public options: GridEngineOptions;
 
   public readonly gridstack: GridStack;
-  public readonly eventBus: EventBus<GridEvent> = new EventBus();
+  public readonly eventBus: EventBus<GridEvent<T>> = new EventBus();
 
   private initialized: boolean = false;
   private batching: boolean = false;
@@ -147,77 +137,117 @@ export class GridEngine implements GridEngineSpec {
   }
 
   /**
-   * Adds an item to the grid.
-   * @param els The element or selector to add.
-   * @param options Options for the grid item.
-   * @returns The added grid item.
+   * 添加一个网格项到当前网格中。
+   *
+   * 约束：
+   * - `els` 必须能解析到一个已存在的 HTMLElement
+   * - 若 `options.id` 未提供，会自动生成唯一 id
+   * - GridStack 可能会修改传入的 widget，返回值始终以最终的 `gridstackNode` 为准
+   *
+   * @param els 目标元素或选择器
+   * @param options 网格项配置（坐标、尺寸、children、data 等）
+   * @returns 标准化的网格项（包含 el 与 grid 引用）
+   * @throws 若元素无法解析或 GridStack 未能写入 gridstackNode
+   *
+   * @example
+   * const item = grid.addItem(el, { w: 3, h: 2, data: { type: 'card' } })
+   * console.log(item.id, item.el)
    */
-  public addItem(els: string | HTMLElement, options: GridItemOptions = {}): GridItem {
-    const el = GridUtils.getElement(els);
+  public addItem(els: string | HTMLElement, options: GridItemOptions<T> = {}): GridItem<T> {
+    const el = GridUtils.getElement(els) as GridItemHTMLElement;
 
     this.flush();
 
-    const item = this.createItem(el, options, options.id);
-    this.gridstack.addWidget(item as unknown as GridStackWidget);
-    
-    // GridStack modifies the object passed to addWidget or returns a widget.
-    // The safest way to get the node back is to read it from the element's gridstackNode property
-    // or trust that the 'item' object was updated if GridStack does that (it usually does).
-    // However, for consistency, let's look up the node if possible or return our wrapper.
-    // The original code cached the wrapper. Here we construct it.
-    
-    return item;
+    const widget = this.createWidget(el, options, options.id);
+    const added = this.gridstack.addWidget(widget as unknown as GridStackWidget) as
+      | GridItemHTMLElement
+      | undefined;
+
+    const finalEl = (added ?? el) as GridItemHTMLElement;
+    const node = finalEl.gridstackNode;
+    if (!node) {
+      throw new Error('GridEngine.addItem: Unable to read gridstackNode after addWidget');
+    }
+
+    return this.makeGridItem(node);
   }
 
   /**
-   * Removes an item from the grid.
-   * @param els The element or selector to remove.
-   * @returns True if the item was removed, false otherwise.
+   * 从网格中移除一个网格项。
+   *
+   * 约束：
+   * - 若 `els` 为选择器且未匹配到元素，则返回 false
+   * - 仅在元素曾是网格项（存在 gridstackNode）时返回 true
+   *
+   * @param els 目标元素或选择器
+   * @returns 是否实际移除了一个网格项
+   *
+   * @example
+   * const removed = grid.removeItem('#item-1')
+   * if (!removed) console.warn('not found')
    */
   public removeItem(els: string | HTMLElement): boolean {
-    // GridStack removeWidget can take element or selector
+    const el = typeof els === 'string'
+      ? (document.querySelector(els) as GridItemHTMLElement | null)
+      : (els as GridItemHTMLElement);
+
+    if (!el) return false;
+    const existed = !!el.gridstackNode;
+
     this.flush();
-    this.gridstack.removeWidget(els);
-    return true;
+    this.gridstack.removeWidget(el);
+    return existed;
   }
 
   /**
-   * Updates an item in the grid.
-   * @param els The element or selector to update.
-   * @param options The new options for the item.
-   * @returns The updated item or false if not found.
+   * 更新一个已存在的网格项。
+   *
+   * @param els 目标元素或选择器
+   * @param options 要更新的配置（仅传入需要更新的字段）
+   * @returns 更新后的网格项；若未找到或不是网格项则返回 false
+   *
+   * @example
+   * const next = grid.updateItem(el, { w: 6, h: 2 })
+   * if (next) console.log(next.w, next.h)
    */
-  public updateItem(els: string | HTMLElement, options: GridItemOptions = {}): false | GridItem {
-    const el = GridUtils.getElement(els) as GridItemHTMLElement;
-    if (!el.gridstackNode) return false;
+  public updateItem(els: string | HTMLElement, options: GridItemOptions<T> = {}): false | GridItem<T> {
+    const el = typeof els === 'string'
+      ? (document.querySelector(els) as GridItemHTMLElement | null)
+      : (els as GridItemHTMLElement);
+    if (!el?.gridstackNode) return false;
 
     this.flush();
 
     this.gridstack.update(el, options);
-    
-    // Re-construct GridItem wrapper
+
     return this.makeGridItem(el.gridstackNode);
   }
 
-  public on<K extends keyof GridEvent>(
+  public on<K extends keyof GridEvent<T>>(
     type: K,
-    callback: EventCallback<GridEvent[K]>,
+    callback: EventCallback<GridEvent<T>[K]>,
   ): () => void;
-  public on<K extends keyof GridEvent>(
-    type: '*',
-    callback: WildcardCallback<GridEvent>,
-  ): () => void;
-  public on<K extends keyof GridEvent>(
-    type: K | '*',
-    callback: EventCallback<GridEvent[K]> | WildcardCallback<GridEvent>,
+  public on(type: '*', callback: WildcardCallback<GridEvent<T>>): () => void;
+  public on(
+    type: keyof GridEvent<T> | '*',
+    callback:
+      | EventCallback<GridEvent<T>[keyof GridEvent<T>]>
+      | WildcardCallback<GridEvent<T>>,
   ): () => void {
     return this.eventBus.on(type, callback);
   }
 
-  public emit<K extends keyof GridEvent>(type: K, event: GridEvent[K]): void {
+  public emit<K extends keyof GridEvent<T>>(type: K, event: GridEvent<T>[K]): void {
     this.eventBus.emit(type, event);
   }
 
+  /**
+   * 初始化网格（构造函数已自动调用）。
+   *
+   * @example
+   * const grid = new GridEngine(el)
+   * grid.setup()
+   */
   public setup() {
     if (this.initialized) return;
 
@@ -229,6 +259,12 @@ export class GridEngine implements GridEngineSpec {
     this.initialized = true;
   }
 
+  /**
+   * 销毁网格实例并清理事件与 DOM 标记。
+   *
+   * @example
+   * grid.destroy()
+   */
   public destroy() {
     this.eventBus.off('*');
 
@@ -241,35 +277,69 @@ export class GridEngine implements GridEngineSpec {
     this.initialized = false;
   }
 
-  // Compatibility method for old API
-  public getItems(): GridItemOptions[] {
-    return serialize(this.gridstack.save(false) as unknown as GridStackWidget[]);
-  }
-
-  public sync(items: GridItemOptions[]) {
-    this.gridstack.load(
-      parse(items, this.options.subGridOptions) as unknown as GridStackWidget[],
-    );
-  }
-
-  public make(el: HTMLElement) {
-    return this.gridstack.makeWidget(el);
+  /**
+   * 获取当前网格布局（兼容旧 API）。
+   *
+   * @returns 可序列化的布局列表
+   * @example
+   * const layout = grid.getItems()
+   */
+  public getItems(): GridItemOptions<T>[] {
+    return serialize<T>(this.gridstack.save(false) as unknown as GridStackWidget[]);
   }
 
   /**
-   * Re-initialization method for old API compatibility.
-   * Constructor already performs initialization, this is a no-op.
-   * @deprecated Use constructor instead.
+   * 获取当前网格布局（稳定模型）。
+   *
+   * @returns 可持久化的布局列表
+   * @example
+   * const layout = grid.getLayout()
    */
-  public init(_: HTMLElement, __: GridEngineOptions) {
-    return this;
+  public getLayout(): LayoutItem[] {
+    return toLayout(this.gridstack.save(false) as unknown as GridStackWidget[]);
+  }
+
+  /**
+   * 将布局同步到网格中。
+   *
+   * @param items 对外布局列表
+   * @example
+   * grid.sync(layout)
+   */
+  public sync(items: GridItemOptions<T>[]) {
+    this.gridstack.load(
+      parse<T>(items, this.options.subGridOptions) as unknown as GridStackWidget[],
+    );
+  }
+
+  /**
+   * 将稳定布局模型同步到网格中。
+   *
+   * @param items 对外稳定布局列表
+   * @example
+   * grid.syncLayout(layout)
+   */
+  public syncLayout(items: LayoutItem[]) {
+    this.gridstack.load(fromLayout(items, this.options.subGridOptions));
+  }
+
+  /**
+   * 使一个 DOM 元素成为可被 GridStack 管理的网格项。
+   *
+   * @param el 目标元素
+   * @returns gridstack 返回的元素
+   * @example
+   * grid.make(el)
+   */
+  public make(el: HTMLElement) {
+    return this.gridstack.makeWidget(el);
   }
 
   private setupEvents() {
     this.gridstack.on('added', (event: Event, nodes: GridStackNode[]) => {
       this.eventBus.emit('added', {
         event,
-        nodes: serialize(nodes as unknown as GridStackWidget[]),
+        nodes: serialize<T>(nodes as unknown as GridStackWidget[]),
       });
       this.eventBus.emit('change', this.getItems()); // Emit change for compatibility
     });
@@ -282,7 +352,7 @@ export class GridEngine implements GridEngineSpec {
           node: GridUtils.pick(
             node as unknown as Record<string, unknown>,
             DROP_KEYS as unknown as (keyof GridStackNode)[],
-          ) as unknown as DragItemOptions<unknown>,
+          ) as unknown as DragItemOptions<T>,
         });
       },
     );
@@ -290,33 +360,30 @@ export class GridEngine implements GridEngineSpec {
       this.eventBus.emit('change', this.getItems());
     });
     this.gridstack.on('removed', (_event: Event, nodes: GridStackNode[]) => {
-      this.eventBus.emit('removed', serialize(nodes as unknown as GridStackWidget[]));
+      this.eventBus.emit('removed', serialize<T>(nodes as unknown as GridStackWidget[]));
       this.eventBus.emit('change', this.getItems());
     });
 
     // Forward other events
-    const events = ['dragstart', 'dragstop', 'resizestart', 'resizestop'];
+    const events = ['dragstart', 'dragstop', 'resizestart', 'resizestop'] as const;
     events.forEach((evt) => {
-      this.gridstack.on(evt, (event: Event, el: any) => {
+      this.gridstack.on(evt, (event: Event, el: GridItemHTMLElement | HTMLElement) => {
         this.eventBus.emit(evt, { event, el });
       });
     });
   }
 
-  /**
-   * Helper to create a GridItem structure.
-   */
-  private createItem(el: HTMLElement, options: GridItemOptions, id?: string): GridItem {
+  private createWidget(el: HTMLElement, options: GridItemOptions<T>, id?: string): GridStackWidget {
     const finalId = id ?? createId();
-    const finalOptions = parse(
-      [{ id: finalId, el, ...GridUtils.trimmed(options) } as unknown as GridItemOptions],
+    const finalOptions = parse<T>(
+      [{ id: finalId, el, ...GridUtils.trimmed(options) } as unknown as GridItemOptions<T>],
       this.options.subGridOptions,
     )[0] as GridStackWidget;
-    return { ...finalOptions, grid: this } as unknown as GridItem;
+    return finalOptions;
   }
 
-  private makeGridItem(node: GridStackNode): GridItem {
-    return { ...node, el: node.el!, grid: this } as unknown as GridItem;
+  private makeGridItem(node: GridStackNode): GridItem<T> {
+    return { ...node, el: node.el!, grid: this } as unknown as GridItem<T>;
   }
 
   /**

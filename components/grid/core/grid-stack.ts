@@ -27,7 +27,7 @@ export interface GridStackEvent {
     dragstop: GridStackElementHandler;
 }
 
-export interface GridStack extends GridStackNative {
+export type GridStack = GridStackNative & {
     placeholder: GridItemHTMLElement;
     _isTemp?: boolean;
     _gsEventHandler: Partial<{
@@ -39,10 +39,12 @@ export interface GridStack extends GridStackNative {
     _readAttr(el: HTMLElement, clearDefaultAttr?: boolean): GridStackNode;
     _leave(el: GridItemHTMLElement, helper?: GridItemHTMLElement): void;
     _updateContainerHeight(): GridStack;
-}
+};
 
-export class GridStack extends GridStackNative {
+export class GridStackAdapter extends GridStackNative {
     public constructor(el: GridHTMLElement, opts: GridStackOptions = {}) {
         super(el, opts);
     }
 }
+
+export const GridStack = GridStackAdapter;
