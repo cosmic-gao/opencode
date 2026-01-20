@@ -6,3 +6,4 @@ export * from './grid-factory';
 export * from './grid-stack';
 export * from './layout';
 export * from './utils';
+export * from './microtask';

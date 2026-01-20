@@ -15,7 +15,7 @@ import { microtask } from './microtask';
 import { DragEngine } from './drag-engine';
 import { GridStack } from './grid-stack';
 import { GridUtils } from './utils';
-import { denormalizeLayout, normalizeLayout } from './layout';
+import { parse, serialize } from './layout';
 
 export interface GridItemOptions extends Omit<GridStackWidget, 'content'> {
   children?: GridItemOptions[];
@@ -131,8 +131,6 @@ export class GridEngine implements GridEngineSpec {
   public readonly gridstack: GridStack;
   public readonly eventBus: EventBus<GridEvent> = new EventBus();
 
-  private items: Map<string, GridItem> = new Map();
-
   private initialized: boolean = false;
   private batching: boolean = false;
 
@@ -157,16 +155,17 @@ export class GridEngine implements GridEngineSpec {
   public addItem(els: string | HTMLElement, options: GridItemOptions = {}): GridItem {
     const el = GridUtils.getElement(els);
 
-    if (options.id && this.items.has(options.id)) {
-      return this.items.get(options.id)!;
-    }
-
     this.flush();
 
     const item = this.createItem(el, options, options.id);
-    this.gridstack.addWidget(item);
-    this.items.set(item.id!, item);
-
+    this.gridstack.addWidget(item as unknown as GridStackWidget);
+    
+    // GridStack modifies the object passed to addWidget or returns a widget.
+    // The safest way to get the node back is to read it from the element's gridstackNode property
+    // or trust that the 'item' object was updated if GridStack does that (it usually does).
+    // However, for consistency, let's look up the node if possible or return our wrapper.
+    // The original code cached the wrapper. Here we construct it.
+    
     return item;
   }
 
@@ -176,13 +175,9 @@ export class GridEngine implements GridEngineSpec {
    * @returns True if the item was removed, false otherwise.
    */
   public removeItem(els: string | HTMLElement): boolean {
-    const id = GridUtils.getId(els);
-    if (!this.items.has(id)) return false;
-
+    // GridStack removeWidget can take element or selector
     this.flush();
-
     this.gridstack.removeWidget(els);
-    this.items.delete(id);
     return true;
   }
 
@@ -193,23 +188,15 @@ export class GridEngine implements GridEngineSpec {
    * @returns The updated item or false if not found.
    */
   public updateItem(els: string | HTMLElement, options: GridItemOptions = {}): false | GridItem {
-    const id = GridUtils.getId(els);
-
-    let item = this.items.get(id) ?? null;
-    if (!item) {
-      const el = GridUtils.getElement(els) as GridItemHTMLElement;
-      if (!el.gridstackNode) return false;
-
-      item = this.createItem(el, options, id);
-    }
+    const el = GridUtils.getElement(els) as GridItemHTMLElement;
+    if (!el.gridstackNode) return false;
 
     this.flush();
 
-    const { el, grid, ...opts } = item;
-    this.gridstack.update(els, opts);
-    this.items.has(id) ? Object.assign(item, opts) : this.items.set(id, item!);
-
-    return item;
+    this.gridstack.update(el, options);
+    
+    // Re-construct GridItem wrapper
+    return this.makeGridItem(el.gridstackNode);
   }
 
   public on<K extends keyof GridEvent>(
@@ -247,8 +234,6 @@ export class GridEngine implements GridEngineSpec {
 
     if (this.gridstack) this.gridstack.destroy();
 
-    this.items.clear();
-
     this.el.classList.remove('oc-grid');
     this.el.removeAttribute('data-grid-id');
 
@@ -258,12 +243,12 @@ export class GridEngine implements GridEngineSpec {
 
   // Compatibility method for old API
   public getItems(): GridItemOptions[] {
-    return normalizeLayout(this.gridstack.save(false) as unknown as GridStackWidget[]);
+    return serialize(this.gridstack.save(false) as unknown as GridStackWidget[]);
   }
 
   public sync(items: GridItemOptions[]) {
     this.gridstack.load(
-      denormalizeLayout(items, this.options.subGridOptions) as unknown as GridStackWidget[],
+      parse(items, this.options.subGridOptions) as unknown as GridStackWidget[],
     );
   }
 
@@ -284,7 +269,7 @@ export class GridEngine implements GridEngineSpec {
     this.gridstack.on('added', (event: Event, nodes: GridStackNode[]) => {
       this.eventBus.emit('added', {
         event,
-        nodes: normalizeLayout(nodes as unknown as GridStackWidget[]),
+        nodes: serialize(nodes as unknown as GridStackWidget[]),
       });
       this.eventBus.emit('change', this.getItems()); // Emit change for compatibility
     });
@@ -304,7 +289,7 @@ export class GridEngine implements GridEngineSpec {
       this.eventBus.emit('change', this.getItems());
     });
     this.gridstack.on('removed', (_event: Event, nodes: GridStackNode[]) => {
-      this.eventBus.emit('removed', normalizeLayout(nodes as unknown as GridStackWidget[]));
+      this.eventBus.emit('removed', serialize(nodes as unknown as GridStackWidget[]));
       this.eventBus.emit('change', this.getItems());
     });
 
@@ -318,27 +303,23 @@ export class GridEngine implements GridEngineSpec {
   }
 
   /**
-   * el: Existing DOM element reference (typically a `.grid-stack-item` node).
-   *
-   * Providing `el` allows GridStack's `addWidget()` to **reuse** an existing element
-   * instead of creating a new widget container. This ensures that the original DOM
-   * structure, event bindings, and internal state are preserved.
+   * Helper to create a GridItem structure.
    */
   private createItem(el: HTMLElement, options: GridItemOptions, id?: string): GridItem {
     const finalId = id ?? createId();
-    const finalOptions = denormalizeLayout(
+    const finalOptions = parse(
       [{ id: finalId, el, ...GridUtils.trimmed(options) } as unknown as GridItemOptions],
       this.options.subGridOptions,
     )[0] as GridStackWidget;
     return { ...finalOptions, grid: this } as unknown as GridItem;
   }
 
+  private makeGridItem(node: GridStackNode): GridItem {
+    return { ...node, el: node.el!, grid: this } as unknown as GridItem;
+  }
+
   /**
    * Flush batched grid updates in a microtask cycle.
-   *
-   * Ensures `gridstack.batchUpdate()` is called once per microtask,
-   * then automatically closed (`batchUpdate(false)`) after all synchronous
-   * changes finish. Prevents redundant reflows during rapid updates.
    */
   private flush() {
     if (this.batching) return;

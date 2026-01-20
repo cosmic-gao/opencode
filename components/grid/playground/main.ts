@@ -1,7 +1,7 @@
 import { createApp, h, ref } from "vue";
 import { Grid, GridDragPortal } from "../vue";
 import type { GridItemProps } from "../vue";
-import type { DragItemOptions } from "../core";
+import type { DragItemOptions } from "../vue";
 
 const app = {
   setup() {

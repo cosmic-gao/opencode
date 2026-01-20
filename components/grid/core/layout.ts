@@ -14,16 +14,16 @@ type SubGridOptions = Omit<GridStackOptions, "children">;
  * @param widgets gridstack.save() 返回的 widget 列表
  * @returns 对外可序列化的布局列表（含 children）
  * @example
- * const layout = normalizeLayout(grid.gridstack.save(false) as any)
+ * const layout = serialize(grid.gridstack.save(false) as any)
  */
-export function normalizeLayout(widgets: GridStackWidget[]): GridItemOptions[] {
+export function serialize(widgets: GridStackWidget[]): GridItemOptions[] {
   return widgets.map((widget) => {
     const { subGridOpts, ...rest } = widget as unknown as Record<string, unknown>;
     const result: Record<string, unknown> = { ...rest };
 
     const children = (subGridOpts as { children?: GridStackWidget[] } | undefined)?.children;
     if (Array.isArray(children)) {
-      result.children = normalizeLayout(children);
+      result.children = serialize(children);
     }
 
     return result as GridItemOptions;
@@ -41,10 +41,10 @@ export function normalizeLayout(widgets: GridStackWidget[]): GridItemOptions[] {
  * @param subGridOptions 子网格默认 options（不含 children）
  * @returns gridstack.load() 可直接消费的 widget 列表
  * @example
- * const widgets = denormalizeLayout(layout, { column: 12, float: true })
+ * const widgets = parse(layout, { column: 12, float: true })
  * grid.gridstack.load(widgets as any)
  */
-export function denormalizeLayout(
+export function parse(
   items: GridItemOptions[],
   subGridOptions?: SubGridOptions,
 ): GridStackWidget[] {
@@ -55,11 +55,10 @@ export function denormalizeLayout(
     if (Array.isArray(children)) {
       result.subGridOpts = {
         ...(subGridOptions ?? {}),
-        children: denormalizeLayout(children as GridItemOptions[], subGridOptions),
+        children: parse(children as GridItemOptions[], subGridOptions),
       };
     }
 
     return result as GridStackWidget;
   });
 }
-

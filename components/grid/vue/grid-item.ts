@@ -49,7 +49,7 @@ export const GridItem = defineComponent({
     const grid = useGrid();
     const model = useGridModel();
 
-    const nestedName: Ref<string> = ref(`${props.id ?? createId()}:nested`);
+    const nestedName = computed(() => `${props.id ?? createId()}:nested`);
 
     const isNested = computed(() => props.children !== undefined);
 

@@ -1,20 +1,19 @@
 import {
   defineComponent,
   h,
+  onBeforeUnmount,
   type PropType,
   type SetupContext,
   type ShallowRef,
   shallowRef,
   watch,
-  onMounted,
-  onBeforeUnmount
-} from "vue-demi";
-import type { DragItemOptions, GridEngine } from "../core";
-import { GridFactory } from "../core";
-import type { GridDragPortalProps } from "./grid.type";
+} from 'vue-demi';
+import type { DragItemOptions, GridEngine } from '../core';
+import { GridFactory } from '../core';
+import type { GridDragPortalProps } from './grid.type';
 
 export const GridDragPortal = defineComponent({
-  name: "GridDragPortal",
+  name: 'GridDragPortal',
   props: {
     target: { type: String, required: true },
     id: { type: String, default: undefined },
@@ -31,27 +30,21 @@ export const GridDragPortal = defineComponent({
     sizeToContent: { type: Boolean, default: undefined },
     autoPosition: { type: Boolean, default: undefined },
     nested: { type: Boolean, default: false },
-    children: { type: Array as PropType<GridDragPortalProps["children"]>, default: undefined },
-    data: { type: null as unknown as PropType<unknown>, default: undefined }
+    children: { type: Array as PropType<GridDragPortalProps['children']>, default: undefined },
+    data: { type: null as unknown as PropType<unknown> },
   },
   setup(props, { slots }: SetupContext) {
     const el: ShallowRef<HTMLElement | null> = shallowRef(null);
     const grid: ShallowRef<GridEngine | null> = shallowRef(null);
 
-    const setupDrag = async (): Promise<void> => {
+    const setupDrag = async (name: string | undefined): Promise<void> => {
       const dom = el.value;
-      const name = props.target;
-      
-      if (!name || !dom) {
-        return;
-      }
+      if (!name || !dom) return;
 
       try {
         const instance = GridFactory.getInstance();
         grid.value = await instance.waitForGrid(name);
-        if (!grid.value) {
-          return;
-        }
+        if (!grid.value) return;
 
         const { target: _, ...options } = props;
         grid.value.driver.setupDragIn(dom, options as unknown as DragItemOptions<unknown>);
@@ -60,18 +53,15 @@ export const GridDragPortal = defineComponent({
       }
     };
 
-    onMounted(() => {
-      void setupDrag();
-    });
-
     watch(
       () => props.target,
-      () => {
+      (name: string) => {
         if (grid.value && el.value) {
           grid.value.driver.destroyDragIn(el.value);
         }
-        void setupDrag();
-      }
+        void setupDrag(name);
+      },
+      { immediate: true },
     );
 
     onBeforeUnmount(() => {
@@ -81,13 +71,13 @@ export const GridDragPortal = defineComponent({
 
     return () =>
       h(
-        "div",
+        'div',
         {
           ref: el,
-          class: ["grid-stack-item", "oc-grid-drag-portal", "grid-drag-portal"],
-          tabindex: 0
+          class: ['grid-stack-item', 'oc-grid-drag-portal', 'grid-drag-portal'],
+          tabindex: 0,
         },
-        h("div", { class: "grid-stack-item-content" }, slots.default?.())
+        h('div', { class: 'grid-stack-item-content' }, slots.default?.()),
       );
-  }
+  },
 });
