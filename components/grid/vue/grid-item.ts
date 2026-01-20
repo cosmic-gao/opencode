@@ -6,6 +6,7 @@ import {
   type SetupContext,
   type ShallowRef,
   type VNode,
+  type Component,
   computed,
   shallowRef,
   ref,
@@ -14,8 +15,7 @@ import {
   onBeforeUnmount
 } from "vue-demi";
 import type { GridItem as GridItemInstance, GridItemOptions } from "../core";
-import { GRID_ITEM_ATTRS, createId } from "../core";
-import { GridUtils } from "../core/internal";
+import { GRID_ITEM_ATTRS, createId, GridUtils } from "../core";
 import { Grid } from "./grid";
 import { useGrid, useGridModel } from "./grid.context";
 import type { GridItemProps } from "./grid.type";
@@ -65,7 +65,7 @@ export const GridItem = defineComponent({
       GRID_ITEM_KEYS.map((key) => () => (props as GridItemProps)[key]),
       () => {
         if (!el.value || !grid.value) return;
-        const options = GridUtils.pick(props as GridItemProps, GRID_ITEM_KEYS) as Partial<GridItemProps>;
+        const options = GridUtils.pick(props as GridItemProps, GRID_ITEM_KEYS as readonly (keyof GridItemProps)[]);
         grid.value.updateItem(el.value, options as GridItemOptions);
       }
     );
@@ -99,7 +99,7 @@ export const GridItem = defineComponent({
 
     const renderContent = (): VNode => {
       if (isNested.value) {
-        return h(Grid as unknown as Record<string, unknown>, {
+        return h(Grid as Component, {
           name: nestedName.value,
           modelValue: props.children as GridItemProps[] | undefined,
           nested: true,
@@ -118,11 +118,11 @@ export const GridItem = defineComponent({
         "div",
         {
           ref: el,
-          class: ["grid-stack-item", "sylas-grid-item", props.nested ? "grid-stack-item-nested" : null],
+          class: ["grid-stack-item", "oc-grid-item", props.nested ? "grid-stack-item-nested" : null],
           ...createAttrs(attributes.value)
         },
         [
-          h("div", { class: ["grid-stack-item-content", "sylas-grid-item-content"] }, [renderContent()])
+          h("div", { class: ["grid-stack-item-content", "oc-grid-item-content"] }, [renderContent()])
         ]
       );
   }

@@ -38,6 +38,15 @@ export class GridFactory implements GridFactorySpec {
     this.initialize()
   }
 
+  /**
+   * 创建网格实例并注册到工厂
+   * 
+   * 若指定 id 的网格已存在，会触发等待队列中的 resolver。
+   * 
+   * @param els DOM 元素或选择器
+   * @param options 网格配置，id 字段用于跨组件引用
+   * @returns 新创建的 GridEngine 实例
+   */
   public createGrid(els: string | HTMLElement, options: GridEngineOptions = {}): GridEngine {
     const el = GridUtils.getElement(els)
 
@@ -51,12 +60,37 @@ export class GridFactory implements GridFactorySpec {
   }
 
   public getGrid(els: string | HTMLElement): GridEngine | undefined {
-    const id = this.resolveId(els)!
+    const id = this.resolveId(els);
+    if (!id) {
+      return undefined;
+    }
     return this.grids.get(id);
   }
 
+  /**
+   * 异步等待网格实例创建完成
+   * 
+   * 用于跨组件场景：如 DragPortal 需引用尚未挂载的目标网格。
+   * 若网格已存在立即返回，否则等待直到对应 id 的网格被创建。
+   * 
+   * 约束：
+   * - 必须确保目标网格最终会被创建，否则 Promise 永不 resolve
+   * - 不会自动超时，调用方需自行处理超时逻辑
+   * 
+   * @param els 网格 id（字符串）或已挂载的网格元素
+   * @returns Promise<GridEngine> 目标网格实例
+   * @throws 若无法解析 ID 则抛出错误
+   * 
+   * @example
+   * // DragPortal 等待目标网格
+   * const grid = await factory.waitForGrid('main-grid')
+   * grid.driver.setupDragIn(el, options)
+   */
   public async waitForGrid(els: string | HTMLElement): Promise<GridEngine> {
-    const id = this.resolveId(els)!;
+    const id = this.resolveId(els);
+    if (!id) {
+      throw new Error('GridFactory.waitForGrid: Unable to resolve grid ID from element');
+    }
 
     const grid = this.grids.get(id);
     if (grid) return grid;

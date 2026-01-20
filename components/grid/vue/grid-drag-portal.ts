@@ -6,10 +6,11 @@ import {
   type ShallowRef,
   shallowRef,
   watch,
+  onMounted,
   onBeforeUnmount
 } from "vue-demi";
 import type { DragItemOptions, GridEngine } from "../core";
-import { GridFactory } from "../core/internal";
+import { GridFactory } from "../core";
 import type { GridDragPortalProps } from "./grid.type";
 
 export const GridDragPortal = defineComponent({
@@ -37,24 +38,40 @@ export const GridDragPortal = defineComponent({
     const el: ShallowRef<HTMLElement | null> = shallowRef(null);
     const grid: ShallowRef<GridEngine | null> = shallowRef(null);
 
-    const setupDrag = async (name: string | undefined): Promise<void> => {
+    const setupDrag = async (): Promise<void> => {
       const dom = el.value;
-      if (!name || !dom) return;
+      const name = props.target;
+      
+      if (!name || !dom) {
+        return;
+      }
 
-      const instance = GridFactory.getInstance();
-      grid.value = await instance.waitForGrid(name);
-      if (!grid.value) return;
+      try {
+        const instance = GridFactory.getInstance();
+        grid.value = await instance.waitForGrid(name);
+        if (!grid.value) {
+          return;
+        }
 
-      const { target: _, ...options } = props;
-      grid.value.driver.setupDragIn(dom, options as unknown as DragItemOptions<unknown>);
+        const { target: _, ...options } = props;
+        grid.value.driver.setupDragIn(dom, options as unknown as DragItemOptions<unknown>);
+      } catch {
+        return;
+      }
     };
+
+    onMounted(() => {
+      void setupDrag();
+    });
 
     watch(
       () => props.target,
-      (name: string) => {
-        void setupDrag(name);
-      },
-      { immediate: true }
+      () => {
+        if (grid.value && el.value) {
+          grid.value.driver.destroyDragIn(el.value);
+        }
+        void setupDrag();
+      }
     );
 
     onBeforeUnmount(() => {
@@ -67,10 +84,10 @@ export const GridDragPortal = defineComponent({
         "div",
         {
           ref: el,
-          class: ["sylas-grid-drag-portal", "grid-drag-portal", "grid-stack-item-content"],
+          class: ["grid-stack-item", "oc-grid-drag-portal", "grid-drag-portal"],
           tabindex: 0
         },
-        slots.default?.()
+        h("div", { class: "grid-stack-item-content" }, slots.default?.())
       );
   }
 });

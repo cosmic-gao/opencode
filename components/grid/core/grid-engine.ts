@@ -98,7 +98,7 @@ const dragDropOptions: GridEngineOptions = {
     autoHide: !isMobile,
     handles: 'se',
   },
-  acceptWidgets: (el: GridItemHTMLElement) =>
+  acceptWidgets: (el: Element) =>
     el.matches('.grid-drag-portal') || el.matches('.grid-stack-item'),
   dragIn: '.grid-drag-portal', // class that can be dragged from outside
   dragInOptions: { scroll: true, appendTo: 'body', helper: 'clone' },
@@ -236,7 +236,7 @@ export class GridEngine implements GridEngineSpec {
 
     this.setupEvents();
 
-    this.el.classList.add('sylas-grid');
+    this.el.classList.add('oc-grid');
     this.el.setAttribute('data-grid-id', this.id);
 
     this.initialized = true;
@@ -249,7 +249,7 @@ export class GridEngine implements GridEngineSpec {
 
     this.items.clear();
 
-    this.el.classList.remove('sylas-grid');
+    this.el.classList.remove('oc-grid');
     this.el.removeAttribute('data-grid-id');
 
     this.batching = false;
@@ -303,7 +303,7 @@ export class GridEngine implements GridEngineSpec {
     this.gridstack.on('change', () => {
       this.eventBus.emit('change', this.getItems());
     });
-    this.gridstack.on('removed', (event: Event, nodes: GridStackNode[]) => {
+    this.gridstack.on('removed', (_event: Event, nodes: GridStackNode[]) => {
       this.eventBus.emit('removed', normalizeLayout(nodes as unknown as GridStackWidget[]));
       this.eventBus.emit('change', this.getItems());
     });

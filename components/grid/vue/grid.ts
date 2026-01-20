@@ -5,6 +5,7 @@ import {
   type SetupContext,
   type ShallowRef,
   type VNode,
+  type Component,
   shallowRef,
   computed,
   onMounted,
@@ -78,7 +79,7 @@ export const Grid = defineComponent({
 
       const syncFromGrid = () => {
         if (!grid.value) return;
-        const next = mergeItems(grid.value.getItems() as unknown as GridItemProps[], items.value);
+        const next = mergeItems(grid.value.getItems() as GridItemProps[], items.value);
         replaceItems(next);
       };
 
@@ -131,14 +132,14 @@ export const Grid = defineComponent({
         "div",
         {
           ref: el,
-          class: ["grid-stack", "sylas-grid-vue", props.nested ? "grid-stack-nested" : null]
+          class: ["grid-stack", "oc-grid-vue", props.nested ? "grid-stack-nested" : null]
         },
         slots.default
           ? slots.default()
           : items.value.map((item: GridItemProps) =>
               h(
-                GridItem as unknown as Record<string, unknown>,
-                { key: item.id, ...item } as unknown as Record<string, unknown>,
+                GridItem as Component,
+                { key: item.id, ...item },
                 slots.default ? { default: () => slots.default?.({ item }) } : undefined
               )
             )
