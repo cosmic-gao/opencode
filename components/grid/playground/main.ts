@@ -72,12 +72,12 @@ const app = {
             h(
               GridDragPortal,
               {
-                target: "group:nested",
+                target: "demo",
                 w: 3,
                 h: 2,
-                data: { source: "portal", type: "nested" }
+                data: { source: "portal", type: "image" }
               },
-              { default: () => h("div", { class: "sourceCard" }, "🔗 Drag: To Nested") }
+              { default: () => h("div", { class: "sourceCard" }, "🖼️ Drag: Image") }
             )
           ]),
           h("h3", { class: "title", style: "margin-top:14px" }, "垃圾桶"),

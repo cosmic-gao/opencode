@@ -3,7 +3,8 @@ import {
   onBeforeUnmount,
   onMounted,
   shallowRef,
-  type ShallowRef
+  type ShallowRef,
+  watch
 } from "vue-demi";
 import { createGrid, createId, type GridEngine } from "../core";
 import { provideGrid, provideGridModel } from "./grid.context";
@@ -17,6 +18,7 @@ export function useGrid(
   const grid: ShallowRef<GridEngine | null> = shallowRef(null);
   let rafId: number | null = null;
   let isInteracting = false;
+  let isSyncingFromGrid = false;
 
   provideGrid(grid);
 
@@ -41,7 +43,9 @@ export function useGrid(
   };
 
   const replaceItems = (next: GridItemProps[]) => {
+    isSyncingFromGrid = true;
     items.value = next.map(ensureId);
+    isSyncingFromGrid = false;
   };
 
   const updateItem = (id: string, patch: Partial<GridItemProps>) => {
@@ -76,6 +80,18 @@ export function useGrid(
 
     // Initial sync: Vue -> Grid
     replaceItems(items.value);
+
+    // Watch for Vue -> Grid sync: when items.value changes externally, sync to Grid
+    watch(
+      () => props.modelValue,
+      (newItems) => {
+        if (!grid.value || isSyncingFromGrid || isInteracting) return;
+        if (newItems) {
+          grid.value.sync(newItems);
+        }
+      },
+      { deep: true }
+    );
 
     // Event Listeners
     grid.value.on("dropped", ({ node }) => {
