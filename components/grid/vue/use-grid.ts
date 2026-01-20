@@ -3,8 +3,7 @@ import {
   onBeforeUnmount,
   onMounted,
   shallowRef,
-  type ShallowRef,
-  watch
+  type ShallowRef
 } from "vue-demi";
 import { createGrid, createId, type GridEngine } from "../core";
 import { provideGrid, provideGridModel } from "./grid.context";
@@ -21,8 +20,6 @@ export function useGrid(
   let isSyncingFromGrid = false;
 
   provideGrid(grid);
-
-  // --- Data Management ---
 
   const items = computed<GridItemProps[]>({
     get: () => props.modelValue ?? [],
@@ -57,13 +54,13 @@ export function useGrid(
   // --- Sync Logic ---
 
   const syncFromGrid = () => {
-    if (!grid.value) return;
+    if (!grid.value || isSyncingFromGrid) return;
     const next = mergeItems(grid.value.getItems() as GridItemProps[], items.value);
     replaceItems(next);
   };
 
   const scheduleSync = () => {
-    if (rafId !== null) return;
+    if (rafId !== null || isSyncingFromGrid) return;
     rafId = window.requestAnimationFrame(() => {
       rafId = null;
       syncFromGrid();
@@ -79,19 +76,9 @@ export function useGrid(
     grid.value = createGrid(el.value, finalOptions);
 
     // Initial sync: Vue -> Grid
-    replaceItems(items.value);
-
-    // Watch for Vue -> Grid sync: when items.value changes externally, sync to Grid
-    watch(
-      () => props.modelValue,
-      (newItems) => {
-        if (!grid.value || isSyncingFromGrid || isInteracting) return;
-        if (newItems) {
-          grid.value.sync(newItems);
-        }
-      },
-      { deep: true }
-    );
+    if (items.value.length > 0) {
+      grid.value.sync(items.value);
+    }
 
     // Event Listeners
     grid.value.on("dropped", ({ node }) => {

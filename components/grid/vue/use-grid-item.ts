@@ -10,22 +10,19 @@ export function useGridItem(
 ) {
   const item: Ref<GridItemInstance | null> = ref(null);
   const grid = useGridContext();
+  let isInitializing = true;
 
   const initItem = () => {
     if (!el.value || !grid.value) return;
-    // 如果 item 已经初始化，不再重复添加
     if (item.value) return;
 
-    // GridStack 引擎会自动处理 DOM 已经在容器中的情况
-    // 这里调用 addItem 是为了获取包装后的 GridItem 实例引用，并确保数据同步
     item.value = grid.value.addItem(el.value, props);
   };
 
-  // Watchers for reactive updates
   watch(
     GRID_ITEM_KEYS.map((key) => () => props[key]),
     () => {
-      if (!el.value || !grid.value) return;
+      if (isInitializing || !el.value || !grid.value) return;
       const options = GridUtils.pick(props, GRID_ITEM_KEYS as readonly (keyof GridItemProps)[]);
       grid.value.updateItem(el.value, options);
     },
@@ -47,20 +44,20 @@ export function useGridItem(
     },
   );
 
-  // Lifecycle
   onMounted(() => {
-    // 尝试初始化
     initItem();
 
-    // 如果初始化时 grid 尚未就绪（常见情况），监听 grid 变化
     if (!item.value) {
       const stop = watch(grid, (newGrid) => {
         if (newGrid) {
           initItem();
-          if (item.value) stop(); // 初始化成功后停止监听
+          if (item.value) stop();
         }
       });
     }
+
+    // 初始化完成后，允许响应 props 变化
+    isInitializing = false;
   });
 
   onBeforeUnmount(() => {

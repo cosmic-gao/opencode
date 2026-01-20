@@ -276,6 +276,7 @@ export class GridEngine implements GridEngineSpec {
     this.gridstack.on(
       'dropped',
       (event: Event, _: GridStackNode, node: GridStackNode) => {
+        if (!node.id) node.id = createId();
         this.eventBus.emit('dropped', {
           event,
           node: GridUtils.pick(

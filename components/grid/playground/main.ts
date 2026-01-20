@@ -1,4 +1,4 @@
-import { createApp, h, ref } from "vue";
+import { createApp, h, nextTick, onMounted, ref } from "vue";
 import { Grid, GridDragPortal } from "../vue";
 import type { GridItemProps } from "../vue";
 import type { DragItemOptions, GridItemOptions } from "../core";
@@ -22,6 +22,7 @@ const app = {
     ]);
 
     const log = ref<string[]>([]);
+    const portalState = ref<string>("");
 
     const addLog = (message: string) => {
       log.value = [`[${new Date().toLocaleTimeString()}] ${message}`, ...log.value.slice(0, 9)];
@@ -39,10 +40,32 @@ const app = {
       });
     };
 
+    let isUpdating = false;
     const handleModelUpdate = (value: GridItemProps[]) => {
+      if (isUpdating) return;
+      isUpdating = true;
       items.value = value;
       addLog(`📝 Layout updated: ${value.length} items`);
+      // 使用 nextTick 确保更新完成后再允许下次更新
+      void nextTick(() => {
+        isUpdating = false;
+      });
     };
+
+    const updatePortalState = async () => {
+      await nextTick();
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      const portals = Array.from(document.querySelectorAll(".oc-grid-drag-portal")) as Array<
+        HTMLElement & { gridstackNode?: unknown }
+      >;
+      const readyCount = portals.filter((portal) => Boolean(portal.gridstackNode)).length;
+      portalState.value = `Portal 绑定状态: ${readyCount}/${portals.length}`;
+    };
+
+    onMounted(() => {
+      void updatePortalState();
+      setTimeout(() => void updatePortalState(), 50);
+    });
 
     return () =>
       h("div", { class: "page" }, [
@@ -80,6 +103,7 @@ const app = {
               { default: () => h("div", { class: "sourceCard" }, "🖼️ Drag: Image") }
             )
           ]),
+          h("div", { class: "title", style: "margin-top:10px" }, portalState.value),
           h("h3", { class: "title", style: "margin-top:14px" }, "垃圾桶"),
           h("div", { class: ["trash", "grid-stack-library-trash"] }, "🗑️ Drop Here To Delete"),
           h("h3", { class: "title", style: "margin-top:14px" }, "事件日志"),

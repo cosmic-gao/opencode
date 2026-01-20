@@ -36,7 +36,6 @@ export const GridItem = defineComponent({
     const el: ShallowRef<HTMLElement | null> = shallowRef(null);
     const model = useGridModel();
 
-    // 使用核心 Hook 管理 Item 生命周期
     useGridItem(props as GridItemPropsType, el);
 
     const nestedName = computed(() => `${props.id ?? createId()}:nested`);

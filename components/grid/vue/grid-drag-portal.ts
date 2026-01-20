@@ -2,6 +2,7 @@ import {
   defineComponent,
   h,
   onBeforeUnmount,
+  nextTick,
   type PropType,
   type SetupContext,
   type ShallowRef,
@@ -22,14 +23,21 @@ export const GridDragPortal = defineComponent({
   setup(props, { slots }: SetupContext) {
     const el: ShallowRef<HTMLElement | null> = shallowRef(null);
     const grid: ShallowRef<GridEngine | null> = shallowRef(null);
+    let setupVersion = 0;
 
     const setupDrag = async (name: string | undefined): Promise<void> => {
+      const version = (setupVersion += 1);
+      if (!name) return;
+
+      if (!el.value) await nextTick();
       const dom = el.value;
-      if (!name || !dom) return;
+      if (!dom) return;
 
       try {
         const instance = GridFactory.getInstance();
-        grid.value = await instance.waitForGrid(name);
+        const engine = await instance.waitForGrid(name);
+        if (version !== setupVersion) return;
+        grid.value = engine;
         if (!grid.value) return;
 
         const { target: _, ...options } = props;
@@ -51,6 +59,7 @@ export const GridDragPortal = defineComponent({
     );
 
     onBeforeUnmount(() => {
+      setupVersion += 1;
       if (grid.value && el.value) grid.value.driver.destroyDragIn(el.value);
       grid.value = null;
     });
