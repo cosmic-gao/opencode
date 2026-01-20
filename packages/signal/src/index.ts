@@ -1,115 +1,103 @@
+export type MaybePromise<T> = T | Promise<T>;
+
 export type EventType = string | symbol;
 
-// An event handler can take an optional event argument
-// and should not return a value
-export type Handler<T = unknown> = (event: T) => void;
-export type WildcardHandler<T = Record<string, unknown>> = (
-  type: keyof T,
-  event: T[keyof T]
-) => void;
+export type Handler<T = unknown> = (event: T) => MaybePromise<void>;
+export type WildcardHandler<E extends Record<EventType, any> = Record<string, unknown>> = (
+  type: keyof E,
+  event: E[keyof E]
+) => MaybePromise<void>;
 
-// A map of event types and their corresponding event handlers.
-export type EventHandlerMap<Events extends Record<EventType, unknown>> = Map<
-  keyof Events | '*',
-  EventHandlerList<Events[keyof Events]> | WildcardHandlerList<Events>
+export type HandlerList<T = unknown> = Array<Handler<T>>;
+export type WildcardHandlerList<E extends Record<EventType, any> = Record<string, unknown>> = Array<
+  WildcardHandler<E>
 >;
 
-export type EventHandlerList<T = unknown> = Array<Handler<T>>;
-export type WildcardHandlerList<T = Record<string, unknown>> = Array<WildcardHandler<T>>;
+export type EventHandlerMap<E extends Record<EventType, any>> = Map<
+  keyof E | '*',
+  Array<Handler<E[keyof E]> | WildcardHandler<E>>
+>;
 
-export interface Emitter<Events extends Record<EventType, unknown>> {
-  all: EventHandlerMap<Events>;
+export interface Emitter<E extends Record<EventType, any>> {
+  all: EventHandlerMap<E>;
 
-  on<Key extends keyof Events>(type: Key, handler: Handler<Events[Key]>): void;
-  on(type: '*', handler: WildcardHandler<Events>): void;
+  on<K extends keyof E>(type: K, handler: Handler<E[K]>): () => void;
+  on(type: '*', handler: WildcardHandler<E>): () => void;
 
-  off<Key extends keyof Events>(type: Key, handler?: Handler<Events[Key]>): void;
-  off(type: '*', handler: WildcardHandler<Events>): void;
+  once<K extends keyof E>(type: K, handler: Handler<E[K]>): () => void;
+  once(type: '*', handler: WildcardHandler<E>): () => void;
 
-  emit<Key extends keyof Events>(type: Key, event: Events[Key]): void;
-  emit<Key extends keyof Events>(type: undefined extends Events[Key] ? Key : never): void;
+  off<K extends keyof E>(type: K, handler?: Handler<E[K]>): void;
+  off(type: '*', handler?: WildcardHandler<E>): void;
+
+  emit<K extends keyof E>(type: K, event: E[K]): void;
+  emit<K extends keyof E>(type: undefined extends E[K] ? K : never): void;
+
+  clear(): void;
 }
 
 /**
- * Mitt: Tiny (~200b) functional event emitter / pubsub.
- * @name mitt
- * @returns {Mitt}
+ * Signal: Functional event emitter / pubsub class implementation.
+ * Renamed to EventBus in logic but kept as Signal class name for compatibility if needed,
+ * or we can export both.
  */
-export default function mitt<Events extends Record<EventType, unknown>>(
-  all?: EventHandlerMap<Events>
-): Emitter<Events> {
-  type GenericEventHandler =
-    | Handler<Events[keyof Events]>
-    | WildcardHandler<Events>;
-  all = all || new Map();
+export class Signal<E extends Record<EventType, any> = Record<string, unknown>> implements Emitter<E> {
+  public all: EventHandlerMap<E> = new Map();
 
-  return {
-    /**
-     * A Map of event names to registered handler functions.
-     */
-    all,
+  constructor(all?: EventHandlerMap<E>) {
+    if (all) this.all = all;
+  }
 
-    /**
-     * Register an event handler for the given type.
-     * @param {string|symbol} type Type of event to listen for, or '*' for all events
-     * @param {Function} handler Function to call in response to given event
-     * @memberOf mitt
-     */
-    on<Key extends keyof Events>(type: Key, handler: GenericEventHandler) {
-      const handlers: Array<GenericEventHandler> | undefined = all!.get(type);
-      if (handlers) {
-        handlers.push(handler);
+  public on<K extends keyof E>(type: K | '*', handler: Handler<E[K]> | WildcardHandler<E>): () => void {
+    const handlers = this.all.get(type) ?? [];
+    handlers.push(handler as Handler<E[keyof E]> | WildcardHandler<E>);
+    this.all.set(type, handlers);
+    return () => this.off(type, handler);
+  }
+
+  public once<K extends keyof E>(type: K | '*', handler: Handler<E[K]> | WildcardHandler<E>): () => void {
+    const off = this.on(type, (...args: unknown[]) => {
+      off();
+      const [typeOrEvent, event] = args;
+      // Handle both wildcard and normal signatures
+      // Wildcard: (type, event)
+      // Normal: (event)
+      
+      // Implementation detail: emit calls handlers differently.
+      // We need to match how the handler wrapper is called.
+      // If type is '*', handler is WildcardHandler: (type, event) => void
+      // If type is K, handler is Handler: (event) => void
+      
+      if (type === '*') {
+         (handler as WildcardHandler<E>)(typeOrEvent as keyof E, event as E[keyof E]);
       } else {
-        all!.set(type, [handler] as EventHandlerList<Events[keyof Events]>);
+         // args[0] is event
+         (handler as Handler<E[K]>)(typeOrEvent as E[K]);
       }
-    },
+    });
+    return off;
+  }
 
-    /**
-     * Remove an event handler for the given type.
-     * If `handler` is omitted, all handlers of the given type are removed.
-     * @param {string|symbol} type Type of event to unregister `handler` from, or `*`
-     * @param {Function} [handler] Handler function to remove
-     * @memberOf mitt
-     */
-    off<Key extends keyof Events>(type: Key, handler?: GenericEventHandler) {
-      const handlers: Array<GenericEventHandler> | undefined = all!.get(type);
-      if (handlers) {
-        if (handler) {
-          handlers.splice(handlers.indexOf(handler) >>> 0, 1);
-        } else {
-          all!.set(type, []);
-        }
-      }
-    },
+  public off<K extends keyof E>(type: K | '*', handler?: Handler<E[K]> | WildcardHandler<E>): void {
+    const handlers = this.all.get(type);
 
-    /**
-     * Invoke all handlers for the given type.
-     * If present, `'*'` handlers are invoked after type-matched handlers.
-     *
-     * Note: Manually firing '*' handlers is not supported.
-     *
-     * @param {string|symbol} type The event type to invoke
-     * @param {Any} [evt] Any value (object is recommended and powerful), passed to each handler
-     * @memberOf mitt
-     */
-    emit<Key extends keyof Events>(type: Key, evt?: Events[Key]) {
-      let handlers = all!.get(type);
-      if (handlers) {
-        (handlers as EventHandlerList<Events[keyof Events]>)
-          .slice()
-          .map((handler) => {
-            handler(evt!);
-          });
+    if (handlers) {
+      if (handler) {
+        const index = handlers.indexOf(handler as Handler<E[keyof E]> | WildcardHandler<E>) >>> 0;
+        if (index > -1) handlers.splice(index, 1);
       }
-
-      handlers = all!.get('*');
-      if (handlers) {
-        (handlers as WildcardHandlerList<Events>)
-          .slice()
-          .map((handler) => {
-            handler(type, evt!);
-          });
-      }
+      if (handlers.length === 0) this.all.delete(type);
     }
-  };
+  }
+
+  public emit<K extends keyof E>(type: K, event?: E[K]): void {
+    this.all.get(type)?.slice().forEach((handler) => (handler as Handler<E[K]>)(event!));
+    this.all.get('*')?.slice().forEach((handler) => (handler as WildcardHandler<E>)(type, event!));
+  }
+
+  public clear(): void {
+    this.all.clear();
+  }
 }
+
+export default Signal;

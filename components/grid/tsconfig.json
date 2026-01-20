@@ -3,8 +3,11 @@
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./*"]
-    }
+      "@/*": ["./*"],
+      "vue": ["node_modules/vue"],
+      "vue-demi": ["node_modules/vue-demi"]
+    },
+    "types": []
   },
   "include": ["**/*.ts", "**/*.d.ts", "**/*.vue"]
 }
