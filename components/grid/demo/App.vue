@@ -33,7 +33,7 @@
 
 <script lang="ts">
 import Vue from 'vue';
-import Grid from '../vue2/Grid.vue';
+import Grid from '../vue2/Grid';
 import { GridItem } from '../core';
 
 export default Vue.extend({
