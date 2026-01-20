@@ -10,27 +10,13 @@ import {
 } from 'vue-demi';
 import type { DragItemOptions, GridEngine } from '../core';
 import { GridFactory } from '../core';
-import type { GridDragPortalProps } from './grid.type';
+import { GridItemProps } from './grid.type';
 
 export const GridDragPortal = defineComponent({
   name: 'GridDragPortal',
   props: {
     target: { type: String, required: true },
-    id: { type: String, default: undefined },
-    w: { type: Number, default: undefined },
-    h: { type: Number, default: undefined },
-    maxW: { type: Number, default: undefined },
-    maxH: { type: Number, default: undefined },
-    minW: { type: Number, default: undefined },
-    minH: { type: Number, default: undefined },
-    noResize: { type: Boolean, default: undefined },
-    noMove: { type: Boolean, default: undefined },
-    locked: { type: Boolean, default: undefined },
-    static: { type: Boolean, default: undefined },
-    sizeToContent: { type: Boolean, default: undefined },
-    autoPosition: { type: Boolean, default: undefined },
-    nested: { type: Boolean, default: false },
-    children: { type: Array as PropType<GridDragPortalProps['children']>, default: undefined },
+    ...GridItemProps,
     data: { type: null as unknown as PropType<unknown> },
   },
   setup(props, { slots }: SetupContext) {

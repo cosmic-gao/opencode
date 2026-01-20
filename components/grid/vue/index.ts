@@ -1,4 +1,4 @@
-import "gridstack/dist/gridstack.min.css";
+import 'gridstack/dist/gridstack.min.css';
 
 export * from './grid';
 export * from './grid-drag-portal';
